@@ -1,0 +1,23 @@
+# fixtures — real receipts/statements, never commit
+fixtures/
+*.local
+
+# node
+node_modules/
+dist/
+.expo/
+*.tsbuildinfo
+
+# python
+__pycache__/
+.venv/
+*.pyc
+
+# env
+.env
+.env.*
+!.env.example
+
+# os
+.DS_Store
+Thumbs.db
