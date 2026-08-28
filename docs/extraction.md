@@ -1,82 +1,85 @@
 # Extraction
 
-Turning a Document into candidate Transactions. Ordered cheapest-and-most-auditable
-first. Every Extraction records which tier fired and its confidence, so a wrong
-number can always be traced to the thing that produced it.
+Documents become candidate transactions in the `extractor` microservice
+([ADR 0007](adr/0007-server-side-processing.md)). The client captures, crops,
+redacts, encrypts, and uploads; the extractor does the rest.
 
-## Principle
+## Pipeline
 
-Rules before models. Not only for cost — a deterministic parse is auditable, and
-money data must be auditable. A model is the fallback for format variance, not the
-default path.
+```
+client   capture → auto-crop → user confirms crop → redact
+         ├─ encrypt original ──────→ blob store        (E2EE, never read by server)
+         └─ cropped derivative ────→ extractor         (TLS, 24h scratch)
 
-## Where each stage runs
+extractor  OCR / PDF text layer / STT
+           → rules
+           → LLM structuring
+           → merchant canonicalization + categorization
+           → candidate transaction
 
-| Stage | Runs on | Why |
-|---|---|---|
-| Capture, crop, deskew, downscale | client | no round-trip, works offline |
-| OCR (image → text) | client | ~100–300 ms on-device vs. seconds for upload+GPU+return |
-| PDF text-layer extraction | client | text layer is already there; parsing it is trivial |
-| Speech-to-text | client | on-device STT is native on both platforms |
-| Redaction | client | must happen before anything can leave the device |
-| Encryption | client | non-negotiable |
-| Rule-based structuring | client | pure functions over text, shared TS package |
-| LLM structuring | server, consented only | needs a hosted model |
+client   user confirms or edits → committed to ledger
+```
 
-On-device OCR is the single most important scaling decision in the system. Server-side
-image OCR would make GPU cost and bandwidth scale linearly with active users; it is
-the worst-scaling component we could have chosen, and we are not choosing it.
+Nothing enters the ledger unconfirmed. Extraction proposes, the user disposes.
+Unconfirmed rows carry a null `confirmed_at` and stay out of every total.
 
-Client OCR APIs: iOS `Vision` / `VNRecognizeTextRequest`, Android ML Kit Text
-Recognition. Both free, offline, and already tuned for receipts. On web, the file is
-usually a PDF or an uploaded image — use the PDF text layer, and fall back to Cloud
-Assist for scanned images rather than shipping a WASM OCR blob.
+## Tiers
 
-## Tier cascade
+Cheapest and most auditable first. Each extraction records which tier produced it, so
+a wrong number is always traceable to the thing that produced it. Rules before models
+is a cost decision second and an auditability decision first — money data must be
+explainable.
 
-**Tier 0 — structured input.** CSV statements and manual entry. Parsed directly. No
+**Tier 0 — structured input.** CSV statements, manual entry. Parsed directly, no
 inference.
 
-**Tier 1 — text layer + rules.** Bank statement PDFs. Extract the text layer, then
-apply per-institution table/regex rules. Deterministic and exact; this should cover
-the large majority of statement volume. Maintain rules per bank, versioned, with a
-fixture PDF per rule in the test suite.
+**Tier 1 — PDF text layer + per-bank rules.** The text layer is already in the file;
+per-institution table and regex rules turn it into rows. Deterministic and exact,
+and this should carry the bulk of statement volume. One versioned rule set per
+institution, each with a fixture PDF in the test suite. Server-side means a broken
+parser is a deploy, not an app store review — the main reason this moved off-device.
 
-**Tier 2 — OCR + receipt heuristics.** Receipt photos. On-device OCR, then rules for
-the fields with strong conventions: total, tax, date, merchant name, last-4 of card.
-These have high hit rates because receipts, whatever else they do, put the total near
-the bottom and label it.
+**Tier 2 — OCR + receipt heuristics.** Totals, tax, date, merchant, card last-4.
+High hit rate, because receipts label the total and put it near the bottom whatever
+else they do.
 
-**Tier 3 — LLM structuring (Cloud Assist).** Full line-item breakdown, unusual
-layouts, and free-form voice input ("spent twelve bucks on coffee at Blue Bottle").
-Line items are where rules genuinely fail — item-name columns have no convention
-across merchants. Requires per-Document consent, and receives **redacted text only**.
+**Tier 3 — LLM structuring.** Line-item breakdown, unusual layouts, and free-form
+voice ("spent twelve bucks on coffee at Blue Bottle"). Line items are where rules
+genuinely fail: item-name columns have no cross-merchant convention. Claude for text
+structuring.
 
-Always attempt Tier 2 first and show the user the total immediately. Tier 3 is an
-enrichment on an already-usable result, never a blocker. The product promise is
-"photograph a receipt, get the amount in seconds" — that promise is kept by Tier 2
-alone.
+## On-device preview
+
+Mobile runs on-device OCR (iOS Vision, Android ML Kit) the instant the photo is taken
+and shows a provisional total in a few hundred milliseconds while the server call is
+in flight. The server result supersedes it. This preserves the "photograph a receipt,
+see the amount immediately" promise despite the round trip, and it is the offline
+path — captures queue and extract when connectivity returns.
+
+Web has no on-device OCR and goes straight to the extractor.
 
 ## Audio
 
-On-device STT first (iOS `Speech`, Android `SpeechRecognizer`). Server-side
-`faster-whisper` on CPU int8 as a consented fallback for long or noisy recordings.
-Note: the dev machine is AMD without CUDA, so GPU whisper on the server is not a
-practical local path — another reason on-device is the default rather than an
-optimization.
+`faster-whisper` on CPU int8 in the extractor. Transcript then goes through Tier 3.
+Note: GPU whisper is not a practical local dev path on an AMD box without CUDA, so
+CPU int8 is the default and the deployed config, not a fallback.
 
-Transcript → same Tier 3 structuring as text.
+## Scaling
 
-## Confirm step
+Server-side OCR is the worst-scaling component in the system — GPU and bandwidth grow
+with active users. Controls, in order of effect:
 
-Extraction output is always *candidate* data. The user sees the parsed amount,
-merchant, and category pre-filled, and confirms or edits. Nothing enters the Ledger
-unconfirmed. Confidence below threshold highlights the field rather than silently
-guessing.
+1. On-device preview absorbs impatient re-captures.
+2. Downscale and JPEG-compress derivatives client-side before upload.
+3. Tier 1 never touches OCR at all; keep statement rules good.
+4. CPU OCR until volume justifies GPUs. Measure before buying.
+
+The extractor scales independently of the API service and runs off a Redis queue, so
+a backlog delays extractions without touching login or ledger reads.
 
 ## Evaluation
 
-Keep a fixture corpus of real receipts and statements (locally, gitignored, never
-committed) with hand-labeled ground truth. Track per-tier accuracy on total, date,
-and merchant. Any rule change runs against the corpus. Without this, rule maintenance
-becomes guesswork.
+A fixture corpus of real receipts and statements with hand-labeled ground truth, kept
+locally and gitignored, never committed. Track per-tier accuracy on total, date, and
+merchant. Every rule change runs against it. Without this, rule maintenance is
+guesswork and regressions ship silently.

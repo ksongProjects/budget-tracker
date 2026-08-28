@@ -1,104 +1,99 @@
 # Crypto design
 
-Goal: the server operator, a database dump, and a compromised object store all yield
-nothing readable. Achieved for Document and Transaction *content*. Not achieved for
-metadata — see "What still leaks".
+Scope narrowed by [ADR 0006](adr/0006-split-trust-model.md). Two data classes, two
+protections. Read that ADR first — this doc is the mechanism, not the reasoning.
+
+| Class | Protection | Server can read? |
+|---|---|---|
+| Documents — receipt images, statement PDFs, audio | client-side AEAD, keys wrapped under user password | no, except via escrow (ADR 0008) |
+| Ledger — transactions, line items, merchants, amounts | TLS in transit, KMS envelope encryption at rest | **yes** |
+| Cropped derivatives sent to the extractor | TLS only, 24h scratch lifecycle | yes, transiently |
 
 ## Primitives
 
-| Purpose | Algorithm | Notes |
-|---|---|---|
-| Passphrase stretching | Argon2id, m=64 MiB, t=3, p=1, 16-byte salt | salt stored server-side, public |
-| Subkey separation | HKDF-SHA256 over Argon2 output | yields `auth_key` and `KEK`, 32 B each |
-| Content encryption | XChaCha20-Poly1305 (AEAD), 24-byte random nonce | libsodium `crypto_aead_xchacha20poly1305_ietf` |
-| Key wrapping | XChaCha20-Poly1305 | same primitive, no second implementation to audit |
-| Recovery key | 128-bit random, rendered as 12 BIP39 words | |
+| Purpose | Algorithm |
+|---|---|
+| Password stretching | Argon2id, m=64 MiB, t=3, p=1, 16-byte salt |
+| Subkey separation | HKDF-SHA256 → `auth_key`, `KEK` |
+| Document encryption | XChaCha20-Poly1305, 24-byte random nonce |
+| Key wrapping | XChaCha20-Poly1305 |
+| Ledger at rest | Postgres + KMS envelope encryption |
 
-One TypeScript package (`packages/crypto`) implements all of this and is consumed by
-both React Native and the web SPA. This is the whole reason the mobile framework is
-React Native — see ADR 0003. A divergence between two crypto implementations
-produces unreadable user data, which is unrecoverable, so there must only be one.
+`packages/crypto` in TypeScript, one implementation, consumed by React Native and the
+web SPA. Smaller than the original design's surface but still the code where a
+cross-client mismatch yields unreadable blobs rather than a thrown error, so it gets
+test vectors and both clients run them in CI.
 
 ## Key hierarchy
 
 ```
-passphrase
-  └─ Argon2id ─→ 64 B ─ HKDF ─┬─→ auth_key   (sent to server for login, only this)
-                              └─→ KEK        (never leaves device)
+password
+  └─ Argon2id ─ HKDF ─┬─→ auth_key   (login only; server stores a hash of this)
+                      └─→ KEK        (never leaves device)
 
-MK  (random 32 B, generated once at registration)
-  ├─ wrapped by KEK           → stored server-side  (normal unlock)
-  ├─ wrapped by recovery key  → stored server-side  (passphrase loss)
-  └─ wrapped by device key    → stored in Keychain / Android Keystore (biometric unlock)
+DMK  (Document Master Key, random 32 B, per user, generated at registration)
+  ├─ wrapped by KEK        → server-side   (normal unlock)
+  ├─ wrapped by KMS escrow → server-side   (support path, ADR 0008; deleted in hard mode)
+  └─ wrapped by device key → Keychain / Android Keystore (biometric unlock)
 
-DEK (random 32 B, per Document and per Transaction)
-  └─ wrapped by MK            → stored server-side beside the ciphertext
+DEK  (random 32 B, per document)
+  └─ wrapped by DMK        → stored beside the blob
 ```
 
-Two properties this buys:
+`auth_key` and `KEK` are independent HKDF outputs. The server never receives the
+password or anything from which the KEK can be derived. Never collapse them.
 
-- **Passphrase change is cheap.** Rewrap the MK. Zero re-encryption of content.
-- **Login secret ≠ encryption secret.** The server sees `auth_key` and can never
-  derive the KEK from it, because HKDF is one-way and the two subkeys are
-  independent. Never collapse these into one value.
+Password change rewraps the DMK only. Documents are never re-encrypted.
 
-## Recovery — decide this before writing any code
+## Escrow release
 
-If the user loses both the passphrase and the recovery key, **their data is
-permanently gone.** The server cannot reset it. This is the cost of E2EE and it must
-be stated in the registration flow in plain language, not buried in a tooltip.
+Requires all four: authenticated session, email confirmation, push to every registered
+device, 72-hour delay. Written to an append-only audit log visible to the user in
+settings. Hard mode deletes the escrow-wrapped DMK, after which no release is
+possible and the UI says so before the user confirms.
 
-Registration flow, non-skippable:
+## The crop boundary
 
-1. Generate MK and recovery key.
-2. Show the 12-word recovery phrase. Require the user to re-enter 3 random words
-   before continuing.
-3. Offer biometric unlock, wrapping MK with a device key.
+Cropping is a security control, not a UI nicety. It is the only thing standing between
+a statement's account numbers and the server-readable side.
 
-Add a per-device wrapped MK on each new device login, so a single device loss is
-never a data loss event.
+- Auto-crop runs on-device. The user confirms the crop before anything uploads.
+- Statement default crop is conservative: transaction rows only, headers and balance
+  blocks excluded.
+- Detected PANs, account numbers, and routing numbers are masked in the derivative by
+  default, with the user able to unmask deliberately.
+- The **original** is encrypted under a per-document DEK and uploaded to the blob
+  store. The **cropped derivative** goes to the extractor over TLS and lives in a
+  scratch bucket with a 24-hour lifecycle rule.
 
-## Cloud Assist boundary
-
-When the user consents on a specific Document:
-
-- The client sends **redacted extracted text only**. Never the image. Never the
-  audio. Text is redactable and reviewable; pixels are not.
-- The client shows the exact text before it is sent, with detected account numbers,
-  card PANs, and addresses masked by default.
-- The server holds the text in memory for the duration of the job, returns structured
-  JSON, and persists nothing but a ConsentEvent row.
-- The result comes back, the client encrypts it, and the ciphertext is stored.
-
-Default posture is `on_device`. Cloud Assist is per-Document and never sticky — no
-"always allow" switch, because the sensitivity varies per document, not per user.
+The extractor holds no key capable of opening an original.
 
 ## Blob handling
 
-Uploads go client → object storage directly via presigned PUT. Ciphertext never
-transits an API pod, so API pods stay small and stateless and there is no plaintext
-in application memory on the default path.
+Presigned PUT straight from client to object storage, so ciphertext never passes
+through an API pod.
 
-## What still leaks
+## What is exposed
 
-Be honest about this in the privacy policy:
+Stated plainly here so the privacy page can be written from it:
 
-- **Metadata**: account existence, login times, device count, number of Documents and
-  Transactions, their sizes, and their creation timestamps.
-- **Timing**: a burst of captures on a Saturday night is visible as a pattern even
-  though the content is not.
-- **Ciphertext size**: a 40-line-item receipt is bigger than a coffee. Pad
-  Transaction ciphertext to fixed buckets (e.g. 256 B / 1 KiB / 4 KiB) to blunt this.
+- **The full ledger.** Every merchant, amount, date, and category is readable by the
+  service. A breach, subpoena, or malicious insider gets a complete spending profile.
+- **Cropped derivatives**, for up to 24 hours.
+- **Document metadata**: count, size, upload time.
 
-We do **not** attempt to hide metadata. Claiming otherwise would be false.
+Not exposed: original receipt images, original statement PDFs, original audio.
 
-## Consequence for product features
+Product copy always ships both halves together — "your documents are end-to-end
+encrypted; your transaction data is encrypted in transit and at rest and processed on
+our servers." Dropping the second half would be a false claim.
 
-The server cannot sort, filter, aggregate, or search the Ledger. All of that runs
-client-side over the decrypted set. This is fine at personal-finance scale: 10k
-transactions at ~200 B each is ~2 MB, which decrypts in well under a second and fits
-in memory on any phone from the last decade. Sync deltas keep it from being refetched.
+## Operational controls the ledger now depends on
 
-If server-side search ever becomes necessary, the option is blind indexing (HMAC of
-normalized merchant name under a client-held key) for equality lookups only. Do not
-add it speculatively — it leaks a merchant-frequency histogram.
+Cryptography no longer protects the ledger, so these are not optional extras:
+
+- Row-level `user_id` scoping enforced at the repository layer (ADR 0009).
+- Audit logging on all ledger reads by staff tooling.
+- No third-party analytics or error reporters that can receive transaction content.
+- Short retention on derived exports and scratch data.
+- Least-privilege IAM on the KMS escrow key, separate from application credentials.

@@ -1,6 +1,6 @@
 # ADR 0001 — E2EE by default, Cloud Assist by consent
 
-**Status**: accepted · 2026-08-28
+**Status**: superseded by [ADR 0006](0006-split-trust-model.md) · 2026-08-28
 
 ## Context
 

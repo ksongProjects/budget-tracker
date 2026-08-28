@@ -5,59 +5,69 @@ docs. If a concept is not here, it is not yet real.
 
 ## Core nouns
 
-**Capture** — one act of the user recording spending. Four kinds: `photo`
-(receipt), `statement` (bank PDF/CSV), `voice` (audio), `manual` (typed). A Capture
-is the user-facing unit: "I captured lunch."
+**Capture** — one act of recording spending. Four kinds: `photo` (receipt),
+`statement` (bank PDF/CSV), `voice` (audio), `manual` (typed). The user-facing unit:
+"I captured lunch."
 
-**Document** — the raw artifact behind a Capture: the receipt image, the statement
-PDF, the audio file. Stored as an encrypted blob in object storage. The server never
-holds the plaintext of a Document.
+**Document** — the raw artifact behind a Capture: receipt image, statement PDF, audio
+file. Encrypted client-side, stored as an opaque blob. The server cannot read it.
 
-**Extraction** — the process turning a Document into candidate structured data, and
-also the record of that process. An Extraction records which *tier* produced the
-result (see `docs/extraction.md`) and its confidence. Extractions are auditable: for
-money data, we always know whether a number came from a regex or a model.
+**Derivative** — the cropped, redacted version of a Document that is sent to the
+extractor. Server-readable, scratch storage, 24-hour lifetime. The Document/Derivative
+split is the central privacy boundary of the system — see
+[ADR 0006](docs/adr/0006-split-trust-model.md).
+
+**Crop** — the user-confirmed region of a Document that becomes the Derivative. A
+security control, not a UI nicety: it is what keeps account numbers and balances out
+of the server-readable side.
+
+**Extraction** — the extractor service turning a Derivative into candidate data, and
+the record of that run. Carries the `tier` that produced it and per-field confidence,
+so any wrong number is traceable.
 
 **Transaction** — one settled spend: amount, currency, occurred-at, merchant,
-category, account. The ledger row. Produced by an Extraction or entered manually.
+category, account. The ledger row. Plaintext and server-queryable.
 
-**LineItem** — one row within a Transaction: item name, quantity, unit price, total.
-Optional — a Transaction is valid with only a total. Tax and fees are LineItems with
-`kind` of `tax` / `fee`, not special columns.
+**LineItem** — a row within a Transaction. Tax, fees, discounts, and tips are
+LineItems with a `kind`, not columns on Transaction.
 
-**Ledger** — the user's full set of Transactions. Because it is encrypted, the
-Ledger is assembled and queried **on the client**. There is no server-side ledger
-query.
+**Ledger** — the user's full set of Transactions. Server-side, indexed, queryable.
+Clients keep a local SQLite cache of the recent window for fast paint and offline
+reads, but the server is the system of record.
 
-## Crypto nouns
+**Confirm** — the user accepting or editing candidate data. Nothing counts toward a
+total before this; unconfirmed rows have a null `confirmed_at`.
 
-**KEK** — key-encryption key, derived from the user's passphrase via Argon2id. Never
-transmitted.
+## Keys and recovery
 
-**MK** — master key, random, generated once per user. Wrapped by the KEK, by the
-recovery key, and optionally by a device key. The wrapped forms live server-side.
+**DMK** — Document Master Key, per user. Wrapped three ways: by the password-derived
+KEK, by the KMS escrow key, and by a per-device key.
 
-**DEK** — data-encryption key, random and per-object (per Document, per Transaction).
-Wrapped by the MK. Rotating a passphrase rewraps the MK only, never the DEKs.
+**DEK** — per-document key, wrapped by the DMK.
 
-**Cloud Assist** — explicit, per-Document user consent to send *redacted extracted
-text* (never pixels, never audio) to the server for LLM structuring. Off by default.
-Every grant is logged as a ConsentEvent.
+**Escrow** — the KMS-wrapped DMK copy that makes support-assisted recovery possible.
+Release needs email confirmation, device notification, and a 72-hour delay, all
+logged.
 
-**Posture** — which privacy mode a given Capture ran under: `on_device` (default) or
-`cloud_assist`. Stored on the Extraction so the user can always see what left their
-phone.
+**Hard mode** — user setting that deletes the escrow copy. Forgotten password then
+means the Documents are unrecoverable. The Ledger is unaffected either way.
 
 ## Verbs
 
-**capture** → user records spending. **extract** → Document becomes candidate data.
-**confirm** → user accepts or edits candidate data, creating a Transaction. **sync**
-→ client pushes/pulls ciphertext rows.
+**capture** → record spending. **crop** → mark what may leave the device.
+**extract** → Derivative becomes candidate data. **confirm** → candidate becomes a
+Transaction. **sync** → refresh the local cache.
 
-Nothing becomes a Transaction without a confirm. Extraction proposes; the user
-disposes.
+## What the server can and cannot read
 
-## Non-goals (for now)
+Cannot: original receipt images, statement PDFs, audio.
 
-Bank API / Plaid-style direct connections. Multi-user shared budgets. Investment
-tracking. Bill prediction. Each would reopen the privacy design.
+Can: the entire Ledger — every merchant, amount, and date — plus Derivatives for 24
+hours and document metadata. Say both halves whenever describing the product. "Your
+documents are end-to-end encrypted; your transaction data is encrypted in transit and
+at rest and processed on our servers."
+
+## Non-goals
+
+Plaid-style bank connections. Shared or multi-user budgets. Investment tracking. Bill
+prediction. Each reopens the privacy design.

@@ -40,3 +40,16 @@ set of validation rules serve all three clients.
 
 Revisit only if mobile UI quality becomes the binding constraint on the product, and
 only with a plan for cross-language crypto test vectors.
+
+## Amendment — 2026-08-28
+
+ADR 0006 shrank the shared-crypto argument that this decision rested on. With a
+server-readable ledger, the only crypto shared between mobile and web is document
+encryption and key wrapping — a much smaller surface than the original design's
+whole-ledger encryption.
+
+The decision stands, on weaker grounds. That surface is still the code where a
+cross-client mismatch produces unreadable data rather than a visible error, and
+sharing `packages/schema` and validation across three clients is worth real time on
+its own. But if mobile UI quality becomes the binding constraint, Flutter is now a
+much more reasonable reconsideration than it was.

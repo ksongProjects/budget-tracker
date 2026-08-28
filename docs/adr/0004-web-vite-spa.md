@@ -31,3 +31,14 @@ retrofit the app shell to gain them.
 Client-side rendering means the unlock step is visible: the user logs in, derives the
 KEK, and the ledger populates. Design for that explicitly rather than hiding it — it
 is a truthful signal that decryption is happening locally.
+
+## Amendment — 2026-08-28
+
+The original rationale was that the server could not render encrypted data. ADR 0006
+made the ledger server-readable, so that argument is gone — Next.js could now
+server-render dashboards and transaction lists perfectly well.
+
+Sticking with Vite regardless, on the remaining grounds: the API is a separate FastAPI
+service, so Next's server layer would be a redundant hop, and "lightweight" was an
+explicit requirement. This is now a preference rather than a constraint, and it is a
+cheap decision to revisit before the web app has screens.

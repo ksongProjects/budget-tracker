@@ -1,6 +1,6 @@
 # ADR 0002 — Image and audio processing on the client
 
-**Status**: accepted · 2026-08-28
+**Status**: superseded by [ADR 0007](0007-server-side-processing.md) · 2026-08-28
 
 ## Context
 
