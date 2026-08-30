@@ -53,7 +53,21 @@ function createMlKitEngine(): OcrEngine | null {
         // ML Kit groups lines into blocks; the heuristics work line by line and
         // do not care about the grouping.
         lines: result.blocks.flatMap((block) =>
-          block.lines.map((line) => ({ text: line.text })),
+          block.lines.map((line) => ({
+            text: line.text,
+            // ML Kit reports pixel boxes as {left, top}; the rules use
+            // {x, y}. Units do not matter to them, only relative positions.
+            ...(line.frame
+              ? {
+                  box: {
+                    x: line.frame.left,
+                    y: line.frame.top,
+                    width: line.frame.width,
+                    height: line.frame.height,
+                  },
+                }
+              : {}),
+          })),
         ),
       };
     },

@@ -5,8 +5,8 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web"
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "@react-native-ml-kit/text-recognition": "^2.0.0",
     "@shopify/flash-list": "2.0.2",
     "expo": "~57.0.18",
+    "expo-asset": "~57.0.15",
     "expo-camera": "~57.0.4",
     "expo-constants": "~57.0.16",
     "expo-crypto": "~57.0.2",
@@ -25,6 +26,7 @@
     "expo-router": "~57.0.17",
     "expo-sqlite": "~57.0.2",
     "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -35,5 +37,13 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2"
+  },
+  "expo": {
+    "autolinking": {
+      "exclude": [
+        "react-native-reanimated",
+        "react-native-gesture-handler"
+      ]
+    }
   }
 }

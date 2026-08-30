@@ -1,8 +1,14 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { DRIVER_CONTRACT } from '@budget/db';
+import { extractReceipt } from '@budget/extract';
+import { formatAmount } from '@budget/schema';
+import type { Currency, MinorUnits } from '@budget/schema';
 import { createExpoDriver } from '../src/db/driver';
+import { loadOcrEngine } from '../src/capture/ocr';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
 /**
@@ -24,6 +30,79 @@ interface Result {
 export default function DiagnosticsScreen(): ReactNode {
   const [results, setResults] = useState<Result[]>([]);
   const [running, setRunning] = useState(false);
+  const [ocr, setOcr] = useState<string[]>([]);
+  const [ocrRunning, setOcrRunning] = useState(false);
+
+  /**
+   * Runs the real OCR engine over a known receipt and reports what the tier-2
+   * rules made of it. The rules are unit-tested against fixture text; this is
+   * the only check of the seam between a real engine's output and those rules.
+   */
+  const runOcr = async (): Promise<void> => {
+    setOcrRunning(true);
+    setOcr([]);
+
+    const lines: string[] = [];
+    const engine = loadOcrEngine();
+
+    if (!engine) {
+      setOcr(['No OCR engine — this is Expo Go. Use a development build.']);
+      setOcrRunning(false);
+      return;
+    }
+
+    try {
+      // Metro resolves bundled assets through require and nothing else.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const asset = Asset.fromModule(require('../assets/test-receipt.png') as number);
+      await asset.downloadAsync();
+
+      const uri = asset.localUri ?? asset.uri;
+      const result = await engine.recognize(uri);
+      lines.push(`engine ${result.engine}, ${result.lines.length} lines, ${result.durationMs} ms`);
+
+      const candidate = extractReceipt(result);
+      const money = (m: MinorUnits, c: Currency | undefined): string =>
+        c ? formatAmount(m, c) : String(m);
+
+      // The expected values are the ones printed on assets/test-receipt.png.
+      lines.push(
+        candidate.total
+          ? `total ${money(candidate.total.value, candidate.currency?.value)} (expect 10.60)`
+          : 'total: not found (expect 10.60)',
+      );
+      lines.push(
+        candidate.tax
+          ? `tax ${money(candidate.tax.value, candidate.currency?.value)} (expect 0.85)`
+          : 'tax: not found (expect 0.85)',
+      );
+      lines.push(`merchant ${candidate.merchant?.value ?? 'not found'} (expect BLUE BOTTLE COFFEE)`);
+      lines.push(`card ${candidate.cardLast4?.value ?? 'not found'} (expect 4242)`);
+      lines.push(
+        candidate.occurredAt
+          ? `date ${new Date(candidate.occurredAt.value).toDateString()} (expect Mar 14 2026)`
+          : 'date: not found (expect Mar 14 2026)',
+      );
+
+      // The raw lines, because how an engine splits a receipt is the thing
+      // fixture text cannot tell you.
+      lines.push('--- raw lines ---');
+      for (const [i, line] of result.lines.entries()) {
+        lines.push(`${i}: ${JSON.stringify(line.text)}`);
+      }
+      // Written to a file so the exact engine output can be pulled off the
+      // device and committed as a fixture.
+      await FileSystem.writeAsStringAsync(
+        `${FileSystem.documentDirectory ?? ''}ocr-lines.json`,
+        JSON.stringify(result.lines, null, 2),
+      );
+    } catch (error) {
+      lines.push(`failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    setOcr(lines);
+    setOcrRunning(false);
+  };
 
   const run = async (): Promise<void> => {
     setRunning(true);
@@ -72,6 +151,16 @@ export default function DiagnosticsScreen(): ReactNode {
             : `${String(failed)} of ${String(results.length)} failed`}
         </Text>
       )}
+
+      <Pressable style={styles.button} onPress={() => void runOcr()} disabled={ocrRunning}>
+        <Text style={styles.buttonText}>{ocrRunning ? 'Reading…' : 'Run OCR on a known receipt'}</Text>
+      </Pressable>
+
+      {ocr.map((line) => (
+        <View key={line} style={styles.row}>
+          <Text style={styles.pass}>{line}</Text>
+        </View>
+      ))}
 
       {results.map((result) => (
         <View key={result.name} style={styles.row}>

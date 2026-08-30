@@ -87,6 +87,28 @@ export async function measureRepeated<T>(
  */
 export const PROCESS_START = Date.now();
 
-export function sinceProcessStart(name: string): MeasurementResult {
-  return withBudget({ name, ms: Date.now() - PROCESS_START });
+let interactiveAt: number | undefined;
+
+/**
+ * Called by the ledger screen the first time it renders real data. This is the
+ * moment the app is usable, and the only honest end point for cold start.
+ *
+ * Measuring to "when the benchmark button was pressed" instead reports however
+ * long the tester took to tap it — which is what the first version of this
+ * harness did, and it reported 71 seconds.
+ */
+export function markInteractive(): void {
+  interactiveAt ??= Date.now();
+}
+
+/**
+ * Cold start, or undefined if the ledger has not painted yet. Undefined rather
+ * than a placeholder: a missing measurement must not look like a fast one.
+ */
+export function coldStart(): MeasurementResult | undefined {
+  if (interactiveAt === undefined) return undefined;
+  return withBudget({
+    name: 'cold start to interactive ledger',
+    ms: interactiveAt - PROCESS_START,
+  });
 }

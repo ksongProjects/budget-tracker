@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CurrencySchema, uuidv7 } from '@budget/schema';
 import { useLedger } from '../src/db/provider';
-import { measureRepeated, sinceProcessStart } from '../src/lib/perf';
+import { coldStart, measureRepeated } from '../src/lib/perf';
 import type { MeasurementResult } from '../src/lib/perf';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
@@ -29,7 +29,9 @@ export default function PerfScreen(): ReactNode {
     setResults([]);
     setNote(null);
 
-    const collected: MeasurementResult[] = [sinceProcessStart('cold start to interactive ledger')];
+    // Undefined until the ledger has painted; omitted rather than faked.
+    const cold = coldStart();
+    const collected: MeasurementResult[] = cold ? [cold] : [];
     setResults([...collected]);
 
     const push = (measurement: MeasurementResult): void => {

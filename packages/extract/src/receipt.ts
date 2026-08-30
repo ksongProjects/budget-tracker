@@ -44,8 +44,90 @@ const SYMBOL_CURRENCIES: Readonly<Record<string, string>> = {
 /** Card last-4 as printed: masks, then four digits. Never the full number. */
 const CARD_LAST4 = /(?:[*x#•]{2,}\s*|ending\s+(?:in\s+)?|xxxx\s*)(\d{4})\b/i;
 
+/**
+ * How far apart two lines' centres may be and still count as the same row,
+ * as a fraction of the typical line height.
+ *
+ * Relative to line height rather than to the page, because engines report boxes
+ * in whatever units they like — ML Kit uses pixels, others normalize to 0–1 —
+ * and a fraction of a line height means the same thing in both.
+ */
+const SAME_ROW_FRACTION = 0.6;
+
+/**
+ * Real OCR engines emit a receipt's label column and amount column as separate
+ * lines: `TAX` and `0.85` arrive apart, not as `TAX 0.85`.
+ *
+ * This was found by running ML Kit against a known receipt on a device — the
+ * fixture text the rules were written against had them on one line, and the
+ * rules silently missed every labelled amount as a result. Fixture text cannot
+ * tell you how an engine splits a page.
+ *
+ * Where boxes are available, an amount-only line is merged into the label line
+ * sharing its row. Without boxes the lines are returned untouched, since
+ * guessing at pairing would invent numbers.
+ */
+export function mergeColumns(lines: readonly OcrLine[]): OcrLine[] {
+  const centre = (line: OcrLine): number | undefined =>
+    line.box ? line.box.y + line.box.height / 2 : undefined;
+
+  const isAmountOnly = (line: OcrLine): boolean =>
+    amountsIn(line.text).length > 0 && /^[^a-z]*$/i.test(line.text.replace(/[\d.,$€£¥\s-]/g, ''));
+
+  const heights = lines
+    .map((line) => line.box?.height)
+    .filter((height): height is number => height !== undefined && height > 0)
+    .sort((a, b) => a - b);
+
+  if (heights.length === 0) return [...lines];
+
+  const medianHeight = heights[Math.floor(heights.length / 2)] ?? 0;
+  const tolerance = medianHeight * SAME_ROW_FRACTION;
+
+  const merged: OcrLine[] = [];
+  const consumed = new Set<number>();
+
+  for (const [index, line] of lines.entries()) {
+    if (consumed.has(index)) continue;
+
+    // A line that already carries its own amount needs no partner.
+    if (amountsIn(line.text).length > 0 || centre(line) === undefined) {
+      merged.push(line);
+      continue;
+    }
+
+    const row = centre(line);
+    if (row === undefined) {
+      merged.push(line);
+      continue;
+    }
+
+    const partner = lines.findIndex((other, otherIndex) => {
+      if (otherIndex === index || consumed.has(otherIndex)) return false;
+      if (!isAmountOnly(other)) return false;
+
+      const otherRow = centre(other);
+      return otherRow !== undefined && Math.abs(otherRow - row) <= tolerance;
+    });
+
+    if (partner === -1) {
+      merged.push(line);
+      continue;
+    }
+
+    consumed.add(partner);
+    const amountLine = lines[partner];
+    merged.push({
+      ...line,
+      text: `${line.text.trim()} ${amountLine?.text.trim() ?? ''}`.trim(),
+    });
+  }
+
+  return merged;
+}
+
 export function extractReceipt(ocr: OcrResult): CandidateTransaction {
-  const lines = ocr.lines.filter((line) => line.text.trim() !== '');
+  const lines = mergeColumns(ocr.lines).filter((line) => line.text.trim() !== '');
 
   const total = findTotal(lines);
   const candidate: {

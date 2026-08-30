@@ -8,6 +8,7 @@ import type { Transaction } from '@budget/schema';
 import { useQuery } from '../src/db/provider';
 import { groupByDay, monthLabel } from '../src/lib/grouping';
 import type { DaySection } from '../src/lib/grouping';
+import { markInteractive } from '../src/lib/perf';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
 const PAGE_SIZE = 50;
@@ -38,6 +39,9 @@ export default function LedgerScreen(): ReactNode {
   );
 
   const rows = useMemo(() => toRows(data ?? []), [data]);
+
+  // The app is usable the first time this screen has data to show.
+  if (!loading) markInteractive();
 
   if (error) {
     return <Centered message={error.message} />;
