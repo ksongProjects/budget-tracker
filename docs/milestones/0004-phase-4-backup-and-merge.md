@@ -97,9 +97,6 @@ correct, because that change would orphan every existing user backup.
   device. The archive code has never met a real `VACUUM INTO` snapshot or a real
   photo, and merge has never met a real archive. This is the same gap that hid
   two bugs in Phase 3, and it is the first thing to close.
-- **Argon2id cost is unmeasured on a phone.** 64 MiB and t=3 is a deliberate
-  cost, but if it takes ten seconds on a mid-range Android the enable-backup
-  flow needs to say so rather than appear frozen.
 - **No key material is stored yet.** The BMK has nowhere to live between
   sessions; that belongs with the recovery-key ceremony in 4.2.
 
@@ -131,6 +128,16 @@ outside this repository.
 
 **All 11 vectors now pass against native libsodium on the device.** The mobile
 and CI crypto provably agree.
+
+A full archive round-trip was then run on the device as well, because the
+vectors only prove the primitives — not the format built on them, which is the
+first thing here to use BigInt and `DataView.setBigUint64` for its frame nonces.
+On Hermes (confirmed at runtime, not from config): a 5914-byte multi-frame
+archive round-trips byte for byte, opens with the recovery key, and rejects a
+tampered copy.
+
+**Argon2id at 64 MiB and t=3 takes 196 ms**, which retires the risk that the
+enable-backup flow would appear frozen. No warning UI is needed.
 
 ## Next
 
