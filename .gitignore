@@ -1,23 +1,24 @@
-# fixtures — real receipts/statements, never commit
-fixtures/
-*.local
-
-# node
 node_modules/
 dist/
-.expo/
+build/
+coverage/
 *.tsbuildinfo
 
-# python
-__pycache__/
-.venv/
-*.pyc
+# Expo
+.expo/
+*.orig.*
+ios/
+android/
 
-# env
+# Fixture corpus — real receipts and statements, never committed (docs/extraction.md)
+fixtures/corpus/
+**/*.local.*
+
+# Secrets
 .env
 .env.*
 !.env.example
 
-# os
+# OS
 .DS_Store
 Thumbs.db

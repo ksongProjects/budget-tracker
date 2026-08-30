@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/schema" },
+    { "path": "packages/db" },
+    { "path": "packages/crypto" },
+    { "path": "packages/backup" },
+    { "path": "packages/extract" }
+  ]
+}
