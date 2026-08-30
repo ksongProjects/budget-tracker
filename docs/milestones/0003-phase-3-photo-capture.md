@@ -95,9 +95,10 @@ transaction. OCR only saves typing.
 ## Risks carried forward
 
 - **OCR is the unverified seam**, and it is the one the phase was named for.
-- **Emulator sessions are unstable here** — the emulator was killed several
-  times mid-run by process reaping, which cost real time. Launch it detached via
-  `Start-Process`, not from a shell job.
+- **Coordinate before touching the emulator.** Two runs were lost when the
+  emulator was closed while tests were in flight. Nothing was wrong with how it
+  was launched — an earlier version of this report guessed at process reaping
+  and was wrong.
 - **Perf budgets remain entirely unmeasured** four phases in.
 - **Merchant-merge, currency picker** still carried from Phases 1 and 2.
 - **Captures are not deletable from the UI.** `deleteDocument` exists and is

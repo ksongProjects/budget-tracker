@@ -1,58 +1,81 @@
 import type { OcrEngine, OcrResult } from '@budget/extract';
 
 /**
- * The on-device OCR engine, when one is available.
+ * On-device text recognition, when the native module is present.
  *
- * Text recognition (iOS Vision, Android ML Kit) is a native module, so it is
- * absent in Expo Go and present in a development build. Rather than crash or
- * pretend, `loadOcrEngine` returns null when there is no engine, and the
- * capture flow falls back to typing the amount.
+ * ML Kit is a native module: it exists in a development build and not in Expo
+ * Go. `loadOcrEngine` returns null rather than crashing when it is missing, and
+ * the confirm screen falls back to typing the amount.
  *
- * That fallback is not a consolation prize: a captured photo with a hand-typed
- * total is a complete, correct transaction. OCR only saves typing.
+ * That fallback is not a consolation prize — a photo with a hand-typed total is
+ * a complete, correct transaction. OCR only saves typing.
  */
 
-let cached: OcrEngine | null | undefined;
-
-export async function loadOcrEngine(): Promise<OcrEngine | null> {
-  if (cached !== undefined) return cached;
-
-  cached = await tryMlKit();
-  return cached;
+interface MlKitLine {
+  readonly text: string;
+  readonly frame?: { left: number; top: number; width: number; height: number };
 }
 
-async function tryMlKit(): Promise<OcrEngine | null> {
-  try {
-    // Resolved at runtime: the module is absent in Expo Go, and a static import
-    // would fail the bundle rather than this call.
-    const moduleName = '@react-native-ml-kit/text-recognition';
-    const mlkit = (await import(/* @vite-ignore */ moduleName)) as {
-      default?: { recognize(uri: string): Promise<MlKitResult> };
-    };
-
-    const recognizer = mlkit.default;
-    if (!recognizer) return null;
-
-    return {
-      name: 'mlkit',
-      async recognize(imageUri: string): Promise<OcrResult> {
-        const started = Date.now();
-        const result = await recognizer.recognize(imageUri);
-
-        return {
-          engine: 'mlkit',
-          durationMs: Date.now() - started,
-          lines: result.blocks.flatMap((block) =>
-            block.lines.map((line) => ({ text: line.text })),
-          ),
-        };
-      },
-    };
-  } catch {
-    return null;
-  }
+interface MlKitBlock {
+  readonly lines: readonly MlKitLine[];
 }
 
 interface MlKitResult {
-  readonly blocks: readonly { readonly lines: readonly { readonly text: string }[] }[];
+  readonly blocks: readonly MlKitBlock[];
+}
+
+interface MlKitModule {
+  recognize(uri: string): Promise<MlKitResult>;
+}
+
+let cached: OcrEngine | null | undefined;
+
+export function loadOcrEngine(): OcrEngine | null {
+  if (cached !== undefined) return cached;
+
+  cached = createMlKitEngine();
+  return cached;
+}
+
+function createMlKitEngine(): OcrEngine | null {
+  const recognizer = requireMlKit();
+  if (!recognizer) return null;
+
+  return {
+    name: 'mlkit',
+    async recognize(imageUri: string): Promise<OcrResult> {
+      const started = Date.now();
+      const result = await recognizer.recognize(imageUri);
+
+      return {
+        engine: 'mlkit',
+        durationMs: Date.now() - started,
+        // ML Kit groups lines into blocks; the heuristics work line by line and
+        // do not care about the grouping.
+        lines: result.blocks.flatMap((block) =>
+          block.lines.map((line) => ({ text: line.text })),
+        ),
+      };
+    },
+  };
+}
+
+/**
+ * A literal `require` so Metro can resolve it statically, in a try/catch because
+ * the native side is absent in Expo Go and touching it throws there.
+ */
+function requireMlKit(): MlKitModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('@react-native-ml-kit/text-recognition') as {
+      default?: MlKitModule;
+    };
+
+    const recognizer = mod.default;
+    if (!recognizer || typeof recognizer.recognize !== 'function') return null;
+
+    return recognizer;
+  } catch {
+    return null;
+  }
 }

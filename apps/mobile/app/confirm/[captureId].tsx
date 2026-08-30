@@ -63,8 +63,7 @@ export default function ConfirmScreen(): ReactNode {
       if (cancelled()) return;
       setPhotoUri(path);
 
-      const engine = await loadOcrEngine();
-      if (cancelled()) return;
+      const engine = loadOcrEngine();
 
       if (!engine || path === undefined) {
         // No OCR on this build. A photo plus a typed total is still a complete
