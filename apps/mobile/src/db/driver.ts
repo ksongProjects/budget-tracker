@@ -12,8 +12,17 @@ import type { SqlParams, SqliteDriver } from '@budget/db';
 
 export const DATABASE_NAME = 'budget.db';
 
-export async function createExpoDriver(name: string = DATABASE_NAME): Promise<SqliteDriver> {
-  const db = await SQLite.openDatabaseAsync(name);
+/**
+ * @param directory Where the file lives. Defaults to expo-sqlite's own
+ * directory; a restore passes the path it wrote the archive's snapshot to,
+ * because opening that by name alone would silently create an empty database
+ * next to the real one instead of reading the snapshot.
+ */
+export async function createExpoDriver(
+  name: string = DATABASE_NAME,
+  directory?: string,
+): Promise<SqliteDriver> {
+  const db = await SQLite.openDatabaseAsync(name, undefined, directory);
 
   // Per-connection, and not defaults. Without foreign_keys every referential
   // bug becomes silent corruption; without WAL a write blocks concurrent reads.

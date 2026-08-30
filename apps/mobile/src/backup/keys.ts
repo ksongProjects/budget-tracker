@@ -23,6 +23,7 @@ import { fromBase64, toBase64 } from '@budget/backup';
 const BMK_KEY = 'budget.bmk';
 const SALT_KEY = 'budget.kdfSalt';
 const RECOVERY_WRAP_KEY = 'budget.recoveryWrap';
+const PASSWORD_WRAP_KEY = 'budget.passwordWrap';
 
 export interface BackupKeyMaterial {
   readonly bmk: Uint8Array;
@@ -78,14 +79,46 @@ export async function adoptKeyMaterial(bmk: Uint8Array, salt: Uint8Array): Promi
  * wrote down. Storing the key instead would make the whole ceremony pointless.
  */
 export async function storeRecoveryWrap(wrap: WrappedKey): Promise<void> {
+  await storeWrap(RECOVERY_WRAP_KEY, wrap);
+}
+
+export async function loadRecoveryWrap(): Promise<WrappedKey | null> {
+  return loadWrap(RECOVERY_WRAP_KEY);
+}
+
+/**
+ * The BMK wrapped under the password KEK, kept for the same reason and on the
+ * same terms: it is ciphertext, and it is what lets a backup run while the app
+ * is being sent to the background with nobody there to type a password.
+ *
+ * Keeping it costs nothing an attacker does not already have — the BMK itself
+ * sits in this same keystore, and it unwraps every archive key directly.
+ */
+export async function storePasswordWrap(wrap: WrappedKey): Promise<void> {
+  await storeWrap(PASSWORD_WRAP_KEY, wrap);
+}
+
+export async function loadPasswordWrap(): Promise<WrappedKey | null> {
+  return loadWrap(PASSWORD_WRAP_KEY);
+}
+
+/** Forget every wrap, for when a restore replaces the key material behind them. */
+export async function clearWraps(): Promise<void> {
+  await Promise.all([
+    SecureStore.deleteItemAsync(RECOVERY_WRAP_KEY),
+    SecureStore.deleteItemAsync(PASSWORD_WRAP_KEY),
+  ]);
+}
+
+async function storeWrap(key: string, wrap: WrappedKey): Promise<void> {
   await SecureStore.setItemAsync(
-    RECOVERY_WRAP_KEY,
+    key,
     JSON.stringify({ nonce: toBase64(wrap.nonce), ciphertext: toBase64(wrap.ciphertext) }),
   );
 }
 
-export async function loadRecoveryWrap(): Promise<WrappedKey | null> {
-  const stored = await SecureStore.getItemAsync(RECOVERY_WRAP_KEY);
+async function loadWrap(key: string): Promise<WrappedKey | null> {
+  const stored = await SecureStore.getItemAsync(key);
   if (stored === null) return null;
 
   const parsed = JSON.parse(stored) as { nonce: string; ciphertext: string };

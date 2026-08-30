@@ -35,7 +35,8 @@
       "expo-asset",
       "react-native-libsodium",
       "expo-secure-store",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-background-task"
     ]
   }
 }

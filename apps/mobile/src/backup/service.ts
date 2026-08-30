@@ -3,14 +3,16 @@ import { SCHEMA_VERSION, mergeAll } from '@budget/db';
 import type { MergeableRow, RepositoryContext } from '@budget/db';
 import { KDF_PARAMS, deriveKek } from '@budget/crypto';
 import type { SodiumBackend } from '@budget/crypto';
-import { readArchive, readHeader, writeArchive } from '@budget/backup';
+import { deserializeWrappedKey, readArchive, readHeader, writeArchive } from '@budget/backup';
 import type { ArchiveEntry } from '@budget/backup';
 import { createNativeSodiumBackend } from '../crypto/backend';
 import { createExpoDriver } from '../db/driver';
 import {
   adoptKeyMaterial,
   loadOrCreateKeyMaterial,
+  loadPasswordWrap,
   loadRecoveryWrap,
+  storePasswordWrap,
   storeRecoveryWrap,
 } from './keys';
 
@@ -24,6 +26,9 @@ import {
 
 const BACKUP_DIR = `${FileSystem.documentDirectory ?? ''}backups/`;
 const APP_VERSION = '0.1.0';
+
+/** How many archives to keep on the device. See `pruneBackups`. */
+export const KEEP_BACKUPS = 5;
 
 /** Tables a backup carries, in the order Merge expects. */
 const BACKUP_TABLES = [
@@ -40,6 +45,17 @@ export interface BackupResult {
   readonly path: string;
   readonly bytes: number;
   readonly createdAt: number;
+}
+
+export interface BackupOptions {
+  /** The password, when the user has just typed it. Omitted for automatic backups. */
+  readonly password?: string;
+  /**
+   * The recovery key, at setup when the user has just been shown it. Omitted
+   * afterwards, when the stored wrap carries the recovery path forward.
+   */
+  readonly recoveryKey?: Uint8Array;
+  readonly sodium?: SodiumBackend;
 }
 
 async function ensureDir(): Promise<void> {
@@ -118,23 +134,22 @@ async function collectDocuments(ctx: RepositoryContext): Promise<ArchiveEntry[]>
  */
 export async function createBackup(
   ctx: RepositoryContext,
-  password: string,
-  /**
-   * The recovery key, at setup when the user has just been shown it. Omitted
-   * afterwards, when the stored wrap carries the recovery path forward.
-   */
-  recoveryKey?: Uint8Array,
-  sodium?: SodiumBackend,
+  options: BackupOptions = {},
 ): Promise<BackupResult> {
-  const backend = sodium ?? (await createNativeSodiumBackend());
+  const backend = options.sodium ?? (await createNativeSodiumBackend());
   const { bmk, salt } = await loadOrCreateKeyMaterial(backend);
-
-  const kek = deriveKek(backend, password, salt, KDF_PARAMS);
   const createdAt = Date.now();
 
-  const storedWrap = await loadRecoveryWrap();
-  const recovery = recoveryKey ?? storedWrap;
-  if (!recovery) {
+  // Either side may be the secret itself, when the user has just supplied it,
+  // or the wrap kept from when they did. Without the wraps an automatic backup
+  // could not run at all: nobody is there to type a password.
+  const passwordSide =
+    options.password === undefined
+      ? await loadPasswordWrap()
+      : deriveKek(backend, options.password, salt, KDF_PARAMS);
+  const recoverySide = options.recoveryKey ?? (await loadRecoveryWrap());
+
+  if (!passwordSide || !recoverySide) {
     throw new Error('Backup has not been set up on this device yet.');
   }
 
@@ -143,19 +158,30 @@ export async function createBackup(
     ...(await collectDocuments(ctx)),
   ];
 
-  const { bytes, recoveryWrap } = writeArchive(backend, entries, kek, recovery, salt, {
-    appVersion: APP_VERSION,
-    schemaVersion: SCHEMA_VERSION,
-    createdAt,
-    kdfParams: KDF_PARAMS,
-    bmk,
-  });
+  const { bytes, recoveryWrap, passwordWrap } = writeArchive(
+    backend,
+    entries,
+    passwordSide,
+    recoverySide,
+    salt,
+    {
+      appVersion: APP_VERSION,
+      schemaVersion: SCHEMA_VERSION,
+      createdAt,
+      kdfParams: KDF_PARAMS,
+      bmk,
+    },
+  );
 
-  // Keep the wrap so the next backup has a recovery path without the key.
-  await storeRecoveryWrap(recoveryWrap);
+  // Keep both wraps so the next backup can run with neither secret present.
+  await Promise.all([storeRecoveryWrap(recoveryWrap), storePasswordWrap(passwordWrap)]);
 
   await ensureDir();
-  const path = `${BACKUP_DIR}btbk-v1-${new Date(createdAt).toISOString().replace(/[:.]/g, '-')}.btbk`;
+  // The device id is in the name so tooling that sees archives from several
+  // devices — the Drive connector, next phase — can prune per device without
+  // opening any of them.
+  const stamp = new Date(createdAt).toISOString().replace(/[:.]/g, '-');
+  const path = `${BACKUP_DIR}btbk-v1-${ctx.deviceId.slice(0, 4)}-${stamp}.btbk`;
 
   // Written to a temporary name and renamed, so a backup interrupted midway
   // never leaves a half-file under a name that looks complete.
@@ -195,22 +221,32 @@ export async function restoreBackup(
     throw new Error('This backup contains no ledger.');
   }
 
-  // Open the snapshot as a second database and read its rows out.
+  // Open the snapshot as a second database and read its rows out. It is opened
+  // from the directory it was written to: expo-sqlite resolves a bare name
+  // against its own directory, so passing only the name would quietly create an
+  // empty database beside the real ledger and read nothing at all.
   await ensureDir();
+  const snapshotDir = BACKUP_DIR.replace('file://', '');
   const snapshotPath = `${BACKUP_DIR}restore.db`;
   await FileSystem.writeAsStringAsync(snapshotPath, encodeBase64(snapshot.bytes), {
     encoding: FileSystem.EncodingType.Base64,
   });
 
   const rows: Record<string, MergeableRow[]> = {};
-  const source = await createExpoDriver('restore.db');
 
   try {
-    for (const table of BACKUP_TABLES) {
-      rows[table] = await source.all<MergeableRow>(`SELECT * FROM ${table}`);
+    const source = await createExpoDriver('restore.db', snapshotDir);
+    try {
+      for (const table of BACKUP_TABLES) {
+        rows[table] = await source.all<MergeableRow>(`SELECT * FROM ${table}`);
+      }
+    } finally {
+      await source.close();
     }
   } finally {
-    await source.close();
+    // The snapshot is the whole ledger in the clear. Leaving it on disk would
+    // undo the point of shipping the data encrypted in the first place.
+    await discardSnapshot(snapshotPath);
   }
 
   const merged = await mergeAll(ctx, rows);
@@ -234,14 +270,29 @@ export async function restoreBackup(
   }
 
   // Adopt the archive's key material so later backups stay openable with the
-  // same secrets as the restored one.
+  // same secrets as the restored one. The wraps have to travel with it: they
+  // are wraps *of this BMK*, and the ones already stored wrap the BMK this
+  // device had a moment ago. Leaving them would make the next automatic backup
+  // seal an archive whose wraps hand back the wrong master key — a file nothing
+  // opens, discovered only when it is needed.
   await adoptKeyMaterial(bmk, base64ToBytes(header.kdf.salt));
+  await Promise.all([
+    storePasswordWrap(deserializeWrappedKey(header.bmkWraps.byPassword)),
+    storeRecoveryWrap(deserializeWrappedKey(header.bmkWraps.byRecoveryKey)),
+  ]);
 
   return {
     createdAt: header.createdAt,
     merged,
     documents,
   };
+}
+
+/** Remove the decrypted snapshot and the journal files SQLite leaves beside it. */
+async function discardSnapshot(path: string): Promise<void> {
+  for (const suffix of ['', '-wal', '-shm', '-journal']) {
+    await FileSystem.deleteAsync(`${path}${suffix}`, { idempotent: true });
+  }
 }
 
 async function documentPathFor(
@@ -253,6 +304,58 @@ async function documentPathFor(
     [captureId],
   );
   return row?.document_path ?? undefined;
+}
+
+/**
+ * The KEK that opens a given archive.
+ *
+ * The salt and KDF parameters come from the archive's own header, never from
+ * this device. A phone restoring after a lost one has no salt of its own, and
+ * deriving from a freshly minted one produces a key that opens nothing — the
+ * exact moment the user cannot afford a failure.
+ */
+export async function deriveArchiveSecret(
+  archiveBytes: Uint8Array,
+  password: string,
+  sodium?: SodiumBackend,
+): Promise<Uint8Array> {
+  const backend = sodium ?? (await createNativeSodiumBackend());
+  const { header } = readHeader(archiveBytes);
+  return deriveKek(backend, password, base64ToBytes(header.kdf.salt), header.kdf);
+}
+
+/**
+ * Keep the newest `keep` backups and delete the rest.
+ *
+ * Old archives are not worthless — they are the only way back from a mistake
+ * noticed late — but they are megabytes each, so a device that never prunes
+ * eventually stops being able to write the one backup that matters most: the
+ * newest. Interrupted `.partial` files go too.
+ */
+export async function pruneBackups(keep = KEEP_BACKUPS): Promise<number> {
+  await ensureDir();
+  const names = await FileSystem.readDirectoryAsync(BACKUP_DIR);
+
+  let removed = 0;
+  for (const name of names) {
+    if (name.endsWith('.partial')) {
+      await FileSystem.deleteAsync(`${BACKUP_DIR}${name}`, { idempotent: true });
+      removed += 1;
+    }
+  }
+
+  const backups = await listBackups();
+  for (const stale of backups.slice(keep)) {
+    await FileSystem.deleteAsync(stale.path, { idempotent: true });
+    removed += 1;
+  }
+
+  return removed;
+}
+
+/** When this device last wrote a backup, or undefined if it never has. */
+export async function lastBackupAt(): Promise<number | undefined> {
+  return (await listBackups())[0]?.createdAt;
 }
 
 /** Backups on this device, newest first. */

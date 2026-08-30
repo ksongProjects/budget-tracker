@@ -1,16 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as DocumentPicker from 'expo-document-picker';
 import { formatRecoveryKey, generateRecoveryKey, parseRecoveryKey } from '@budget/crypto';
-import { deriveKek, KDF_PARAMS } from '@budget/crypto';
 import { useLedger } from '../src/db/provider';
 import { createNativeSodiumBackend } from '../src/crypto/backend';
 import { hasKeyMaterial, loadOrCreateKeyMaterial } from '../src/backup/keys';
-import { createBackup, listBackups, readBackupFile, restoreBackup } from '../src/backup/service';
+import {
+  KEEP_BACKUPS,
+  createBackup,
+  deriveArchiveSecret,
+  listBackups,
+  readBackupFile,
+  restoreBackup,
+} from '../src/backup/service';
+import { MIN_INTERVAL_HOURS } from '../src/backup/auto';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
-type Stage = 'loading' | 'idle' | 'password' | 'recovery-shown' | 'recovery-verify' | 'done';
+type Stage =
+  | 'loading'
+  | 'idle'
+  | 'password'
+  | 'recovery-shown'
+  | 'recovery-verify'
+  | 'done'
+  | 'restore';
 
 /**
  * Enabling backup, which is also the recovery-key ceremony.
@@ -19,6 +34,10 @@ type Stage = 'loading' | 'idle' | 'password' | 'recovery-shown' | 'recovery-veri
  * key means the backups are unreadable by anyone, forever — so the key is shown
  * once and the user has to type part of it back before the flow completes.
  * Making that skippable would turn "recovery key" into decoration.
+ *
+ * Restore is reachable from the very first screen, before any setup. The device
+ * that needs it most is a new one that has never had this app on it: offering
+ * restore only after setup would put it behind the door it is meant to open.
  */
 export default function BackupScreen(): ReactNode {
   const ledger = useLedger();
@@ -27,24 +46,26 @@ export default function BackupScreen(): ReactNode {
   const [password, setPassword] = useState('');
   const [recoveryKey, setRecoveryKey] = useState<Uint8Array | null>(null);
   const [typedBack, setTypedBack] = useState('');
+  const [restoreSecret, setRestoreSecret] = useState('');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [existing, setExisting] = useState<{ count: number; newest?: number }>({ count: 0 });
 
   const printed = recoveryKey ? formatRecoveryKey(recoveryKey) : '';
 
   // Backup being set up is a fact about the device, not about this screen's
   // lifetime. Without this, reopening the screen offers to set up again and
   // would mint a second recovery key against the same master key.
-  useEffect(() => {
-    let cancelled = false;
-    void hasKeyMaterial().then((exists) => {
-      if (!cancelled) setStage(exists ? 'done' : 'idle');
-    });
-    return () => {
-      cancelled = true;
-    };
+  const refresh = useCallback(async (): Promise<void> => {
+    const [isSetUp, backups] = await Promise.all([hasKeyMaterial(), listBackups()]);
+    setExisting({ count: backups.length, ...(backups[0] ? { newest: backups[0].createdAt } : {}) });
+    setStage(isSetUp ? 'done' : 'idle');
   }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const begin = (): void => {
     setError(null);
@@ -66,7 +87,7 @@ export default function BackupScreen(): ReactNode {
       setRecoveryKey(generateRecoveryKey(sodium));
       setStage('recovery-shown');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(describe(cause));
     } finally {
       setBusy(false);
     }
@@ -87,14 +108,16 @@ export default function BackupScreen(): ReactNode {
     setStatus('Writing your first backup…');
 
     try {
-      const result = await createBackup(ledger, password, recoveryKey);
+      const result = await createBackup(ledger, { password, recoveryKey });
       setStatus(
-        `Backed up ${(result.bytes / 1024).toFixed(1)} KB at ${new Date(result.createdAt).toLocaleTimeString()}.`,
+        `Backed up ${formatSize(result.bytes)} at ${new Date(result.createdAt).toLocaleTimeString()}.`,
       );
-      setStage('done');
       setPassword('');
+      setRecoveryKey(null);
+      setTypedBack('');
+      await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(describe(cause));
       setStatus(null);
     } finally {
       setBusy(false);
@@ -102,66 +125,76 @@ export default function BackupScreen(): ReactNode {
   };
 
   const backUpAgain = async (): Promise<void> => {
-    if (password.length === 0) {
-      setError('Enter your backup password.');
-      return;
-    }
-
     setBusy(true);
     setError(null);
     setStatus('Backing up…');
     try {
-      // No recovery key needed: the stored wrap carries the recovery path
-      // forward from the ceremony.
-      const result = await createBackup(ledger, password);
-      setStatus(`Backed up ${(result.bytes / 1024).toFixed(1)} KB.`);
-      setPassword('');
+      // No password and no recovery key: the stored wraps carry both paths
+      // forward from the ceremony, which is what lets this run unattended too.
+      const result = await createBackup(ledger);
+      setStatus(`Backed up ${formatSize(result.bytes)}.`);
+      await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(describe(cause));
       setStatus(null);
     } finally {
       setBusy(false);
     }
   };
 
-  const restoreLatest = async (): Promise<void> => {
+  const runRestore = async (source: 'latest' | 'file'): Promise<void> => {
+    if (restoreSecret.trim().length === 0) {
+      setError('Enter your backup password, or your recovery key.');
+      return;
+    }
+
     setBusy(true);
     setError(null);
     setStatus('Restoring…');
 
     try {
-      const backups = await listBackups();
-      const latest = backups[0];
-      if (!latest) {
-        setError('There are no backups on this device yet.');
+      const bytes = source === 'file' ? await pickArchive() : await readLatestArchive();
+      if (!bytes) {
         setStatus(null);
         return;
       }
 
       const sodium = await createNativeSodiumBackend();
-      const { salt } = await loadOrCreateKeyMaterial(sodium);
 
-      const parsed = parseRecoveryKey(typedBack);
-      const secret =
-        parsed ?? deriveKek(sodium, password, salt, KDF_PARAMS);
+      // A recovery key is recognisable by its shape; anything else is a
+      // password, stretched with the salt the archive itself carries.
+      const parsed = parseRecoveryKey(restoreSecret);
+      const secret = parsed ?? (await deriveArchiveSecret(bytes, restoreSecret, sodium));
 
-      const bytes = await readBackupFile(latest.path);
+      const startedAt = Date.now();
       const result = await restoreBackup(ledger, bytes, secret, sodium);
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
 
-      const inserted = Object.values(result.merged).reduce((sum, s) => sum + s.inserted, 0);
-      const kept = Object.values(result.merged).reduce((sum, s) => sum + s.kept, 0);
+      const total = (field: 'inserted' | 'updated' | 'kept'): number =>
+        Object.values(result.merged).reduce((sum, stats) => sum + stats[field], 0);
 
       setStatus(
-        `Restored a backup from ${new Date(result.createdAt).toLocaleString()}: ` +
-          `${String(inserted)} rows added, ${String(kept)} already current, ` +
-          `${String(result.documents)} photos.`,
+        `Restored a backup from ${new Date(result.createdAt).toLocaleString()} in ${seconds}s: ` +
+          `${String(total('inserted'))} rows added, ${String(total('updated'))} updated, ` +
+          `${String(total('kept'))} already current, ${String(result.documents)} photos.`,
       );
+      setRestoreSecret('');
+      await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(describeRestoreFailure(cause));
       setStatus(null);
     } finally {
       setBusy(false);
     }
+  };
+
+  const readLatestArchive = async (): Promise<Uint8Array | undefined> => {
+    const latest = (await listBackups())[0];
+    if (!latest) {
+      setError('There are no backups on this device. Choose a backup file instead.');
+      return undefined;
+    }
+    return readBackupFile(latest.path);
   };
 
   return (
@@ -176,6 +209,16 @@ export default function BackupScreen(): ReactNode {
           </Text>
           <Pressable style={styles.primary} onPress={begin}>
             <Text style={styles.primaryText}>Set up backup</Text>
+          </Pressable>
+          <Pressable
+            style={styles.secondary}
+            onPress={() => {
+              setStage('restore');
+              setError(null);
+              setStatus(null);
+            }}
+          >
+            <Text style={styles.secondaryText}>I already have a backup</Text>
           </Pressable>
         </>
       )}
@@ -233,7 +276,8 @@ export default function BackupScreen(): ReactNode {
         <>
           <Text style={text.heading}>Type the last group back</Text>
           <Text style={text.muted}>
-            The last five characters of your recovery key, to confirm you really have it.
+            The last group of your recovery key — the {String(expectedGroup.length)} characters
+            after the final dash — to confirm you really have it.
           </Text>
           <TextInput
             value={typedBack}
@@ -261,32 +305,77 @@ export default function BackupScreen(): ReactNode {
       {stage === 'done' && (
         <>
           <Text style={text.heading}>Backup is on</Text>
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            placeholder="Backup password"
-            placeholderTextColor={colors.textFaint}
-            secureTextEntry
-            style={styles.input}
-          />
+          <Text style={text.muted}>
+            {existing.newest === undefined
+              ? 'No archive has been written yet.'
+              : `Last backup ${new Date(existing.newest).toLocaleString()} — ` +
+                `${String(existing.count)} kept on this device, newest ${String(KEEP_BACKUPS)} are.`}
+          </Text>
+          <Text style={text.faint}>
+            A backup is written when you leave the app, at most once every{' '}
+            {String(MIN_INTERVAL_HOURS)} hours and only when something changed. Neither your
+            password nor your recovery key is needed for it.
+          </Text>
           <Pressable style={styles.primary} onPress={() => void backUpAgain()} disabled={busy}>
             <Text style={styles.primaryText}>{busy ? 'Working…' : 'Back up now'}</Text>
           </Pressable>
           <Pressable
             style={styles.secondary}
             onPress={() => {
-              Alert.alert(
-                'Restore the latest backup?',
-                'Your current ledger is kept — restoring merges the backup into it and never removes newer entries.',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Restore', onPress: () => void restoreLatest() },
-                ],
-              );
+              setStage('restore');
+              setError(null);
+              setStatus(null);
             }}
             disabled={busy}
           >
-            <Text style={styles.secondaryText}>Restore latest backup</Text>
+            <Text style={styles.secondaryText}>Restore a backup</Text>
+          </Pressable>
+        </>
+      )}
+
+      {stage === 'restore' && (
+        <>
+          <Text style={text.heading}>Restore a backup</Text>
+          <Text style={text.muted}>
+            Your current entries are kept. Restoring merges the backup into this ledger and
+            never removes anything newer.
+          </Text>
+          <TextInput
+            value={restoreSecret}
+            onChangeText={setRestoreSecret}
+            placeholder="Backup password or recovery key"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={styles.input}
+          />
+          <Pressable
+            style={styles.primary}
+            onPress={() => void runRestore('file')}
+            disabled={busy}
+          >
+            <Text style={styles.primaryText}>{busy ? 'Restoring…' : 'Choose a backup file'}</Text>
+          </Pressable>
+          {existing.count > 0 && (
+            <Pressable
+              style={styles.secondary}
+              onPress={() => {
+                Alert.alert(
+                  'Restore the latest backup on this device?',
+                  'Your current ledger is kept — restoring merges the backup into it.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Restore', onPress: () => void runRestore('latest') },
+                  ],
+                );
+              }}
+              disabled={busy}
+            >
+              <Text style={styles.secondaryText}>Use the latest backup on this device</Text>
+            </Pressable>
+          )}
+          <Pressable style={styles.quiet} onPress={() => void refresh()} disabled={busy}>
+            <Text style={styles.quietText}>Back</Text>
           </Pressable>
         </>
       )}
@@ -295,6 +384,42 @@ export default function BackupScreen(): ReactNode {
       {error !== null && <Text style={styles.error}>{error}</Text>}
     </ScrollView>
   );
+}
+
+/** Read a `.btbk` the user points at — a backup from an old phone, off cloud storage or a cable. */
+async function pickArchive(): Promise<Uint8Array | undefined> {
+  const picked = await DocumentPicker.getDocumentAsync({
+    copyToCacheDirectory: true,
+    // Android has no MIME type for our archive; the extension is checked on read.
+    type: '*/*',
+  });
+
+  const file = picked.assets?.[0];
+  if (picked.canceled || !file) return undefined;
+
+  return readBackupFile(file.uri);
+}
+
+function formatSize(bytes: number): string {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    : `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * A wrong password and a corrupt file both surface as a failed unwrap, and the
+ * first is overwhelmingly the likelier. Saying so beats making the user suspect
+ * the file that holds everything they have.
+ */
+function describeRestoreFailure(cause: unknown): string {
+  const message = describe(cause);
+  return /unwrap|decrypt|authentic/i.test(message)
+    ? 'That password or recovery key did not open this backup. Check it and try again.'
+    : message;
 }
 
 const styles = StyleSheet.create({
@@ -335,6 +460,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   secondaryText: { color: colors.text, fontWeight: '600' },
+  quiet: { paddingVertical: spacing.sm, alignItems: 'center' },
+  quietText: { color: colors.textMuted },
   warn: { color: colors.pending },
   status: { color: colors.text },
   error: { color: colors.danger },
