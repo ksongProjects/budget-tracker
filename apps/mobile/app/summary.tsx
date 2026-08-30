@@ -7,9 +7,11 @@ import { useQuery } from '../src/db/provider';
 import { monthLabel } from '../src/lib/grouping';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
-const DISPLAY_CURRENCY = CurrencySchema.parse('USD');
-
 type GroupBy = 'category' | 'month';
+
+/** Amounts are stored per currency, so they are displayed per currency. */
+const money = (minor: number, currency: string): string =>
+  formatAmount(minor as MinorUnits, CurrencySchema.parse(currency));
 
 /**
  * Aggregates come from SQLite, not from summing a loaded page: the totals must
@@ -20,7 +22,7 @@ export default function SummaryScreen(): ReactNode {
   const [groupBy, setGroupBy] = useState<GroupBy>('category');
 
   const { data, loading } = useQuery((l) => l.transactions.summary(groupBy), [groupBy]);
-  const { data: total } = useQuery((l) => l.transactions.total(), []);
+  const { data: totals } = useQuery((l) => l.transactions.totals(), []);
 
   const names = useQuery(
     async (l) => {
@@ -38,9 +40,18 @@ export default function SummaryScreen(): ReactNode {
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <View style={styles.totalBlock}>
         <Text style={text.faint}>Confirmed spending</Text>
-        <Text style={styles.totalText}>
-          {formatAmount((total ?? 0) as MinorUnits, DISPLAY_CURRENCY)}
-        </Text>
+        {(totals ?? []).length === 0 ? (
+          <Text style={styles.totalText}>—</Text>
+        ) : (
+          // One line per currency. Adding them would need a rate we do not have,
+          // and inventing one to show a single number would be a lie.
+          (totals ?? []).map((entry) => (
+            <Text key={entry.currency} style={styles.totalText}>
+              {money(entry.totalMinor, entry.currency)}
+              <Text style={text.faint}> {entry.currency}</Text>
+            </Text>
+          ))
+        )}
       </View>
 
       <View style={styles.tabs}>
@@ -74,12 +85,10 @@ export default function SummaryScreen(): ReactNode {
             : (names.data?.get(row.key ?? '') ?? 'Uncategorized');
 
         return (
-          <View key={row.key ?? 'none'} style={styles.row}>
+          <View key={`${row.key ?? 'none'}:${row.currency}`} style={styles.row}>
             <View style={styles.rowHeader}>
               <Text style={text.body}>{label}</Text>
-              <Text style={text.amount}>
-                {formatAmount(row.totalMinor as MinorUnits, DISPLAY_CURRENCY)}
-              </Text>
+              <Text style={text.amount}>{money(row.totalMinor, row.currency)}</Text>
             </View>
             <View style={styles.barTrack}>
               <View

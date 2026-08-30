@@ -140,7 +140,7 @@ describe('soft delete', () => {
     await repo.softDelete(created.id);
 
     expect(await repo.list()).toHaveLength(0);
-    expect(await repo.total()).toBe(0);
+    expect(await repo.total(USD)).toBe(0);
 
     const raw = await driver.get<{ deleted_at: number | null; rev: number }>(
       'SELECT deleted_at, rev FROM transactions WHERE id = ?',
@@ -160,10 +160,10 @@ describe('soft delete', () => {
 describe('confirm', () => {
   it('is what admits a row to the totals', async () => {
     const created = await repo.create(draft({ amountMinor: money(500) }));
-    expect(await repo.total()).toBe(0);
+    expect(await repo.total(USD)).toBe(0);
 
     await repo.confirm(created.id);
-    expect(await repo.total()).toBe(500);
+    expect(await repo.total(USD)).toBe(500);
   });
 });
 
@@ -237,8 +237,8 @@ describe('summary', () => {
     await repo.create(draft({ categoryId, amountMinor: money(9999) }));
 
     const byCategory = await repo.summary('category');
-    expect(byCategory).toEqual([{ key: categoryId, totalMinor: 800, count: 2 }]);
-    expect(await repo.total()).toBe(800);
+    expect(byCategory).toEqual([{ key: categoryId, currency: 'USD', totalMinor: 800, count: 2 }]);
+    expect(await repo.total(USD)).toBe(800);
   });
 
   it('groups by month', async () => {
@@ -249,10 +249,41 @@ describe('summary', () => {
     const byMonth = await repo.summary('month');
     expect(byMonth).toEqual(
       expect.arrayContaining([
-        { key: '2024-02', totalMinor: 250, count: 1 },
-        { key: '2024-01', totalMinor: 100, count: 1 },
+        { key: '2024-02', currency: 'USD', totalMinor: 250, count: 1 },
+        { key: '2024-01', currency: 'USD', totalMinor: 100, count: 1 },
       ]),
     );
+  });
+
+  it('never adds across currencies', async () => {
+    const EUR = CurrencySchema.parse('EUR');
+    await repo.create(draft({ amountMinor: money(100), currency: USD, confirmedAt: at(1) }));
+    await repo.create(draft({ amountMinor: money(200), currency: EUR, confirmedAt: at(1) }));
+
+    // 100 USD + 200 EUR is not 300 of anything, and a wrong total is invisible.
+    expect(await repo.total(USD)).toBe(100);
+    expect(await repo.total(EUR)).toBe(200);
+
+    expect(await repo.totals()).toEqual([
+      { currency: 'EUR', totalMinor: 200 },
+      { currency: 'USD', totalMinor: 100 },
+    ]);
+  });
+
+  it('splits summary rows by currency', async () => {
+    const EUR = CurrencySchema.parse('EUR');
+    const categoryId = uuidv7() as CategoryId;
+    await driver.run(
+      `INSERT INTO categories (id, name, updated_at, origin_device) VALUES (?, 'Travel', 1, 'dev')`,
+      [categoryId],
+    );
+
+    await repo.create(draft({ categoryId, amountMinor: money(100), currency: USD, confirmedAt: at(1) }));
+    await repo.create(draft({ categoryId, amountMinor: money(200), currency: EUR, confirmedAt: at(1) }));
+
+    const rows = await repo.summary('category');
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.currency).sort()).toEqual(['EUR', 'USD']);
   });
 
   it('ignores soft-deleted rows', async () => {
@@ -260,7 +291,7 @@ describe('summary', () => {
     const gone = await repo.create(draft({ amountMinor: money(500), confirmedAt: at(1) }));
     await repo.softDelete(gone.id);
 
-    expect(await repo.total()).toBe(100);
+    expect(await repo.total(USD)).toBe(100);
     expect((await repo.list()).map((r) => r.id)).toEqual([kept.id]);
   });
 });

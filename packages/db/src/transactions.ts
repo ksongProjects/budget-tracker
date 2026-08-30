@@ -2,6 +2,7 @@ import { TransactionSchema, uuidv7 } from '@budget/schema';
 import type {
   AccountId,
   CategoryId,
+  Currency,
   MerchantId,
   MinorUnits,
   Timestamp,
@@ -39,10 +40,20 @@ export interface TransactionFilter {
   readonly cursor?: Timestamp;
 }
 
+/**
+ * Totals are always per currency. Summing across currencies would produce a
+ * number with no meaning, and it would look exactly like a correct one.
+ */
 export interface SummaryRow {
   readonly key: string | null;
+  readonly currency: string;
   readonly totalMinor: number;
   readonly count: number;
+}
+
+export interface CurrencyTotal {
+  readonly currency: string;
+  readonly totalMinor: number;
 }
 
 const SELECT = `SELECT ${TRANSACTION_COLUMNS.join(', ')} FROM transactions`;
@@ -160,20 +171,36 @@ export class TransactionRepository {
     const { where, params } = buildWhere({ ...filter, confirmed: true });
 
     return this.ctx.driver.all<SummaryRow>(
-      `SELECT ${column} AS key, SUM(amount_minor) AS totalMinor, COUNT(*) AS count
+      `SELECT ${column} AS key, currency, SUM(amount_minor) AS totalMinor, COUNT(*) AS count
        FROM transactions ${where}
-       GROUP BY ${column}
+       GROUP BY ${column}, currency
        ORDER BY totalMinor DESC`,
       params,
     );
   }
 
-  /** Total of confirmed spending only. */
-  async total(filter: TransactionFilter = {}): Promise<number> {
+  /**
+   * Confirmed spending, one row per currency. Returns an empty array when there
+   * is nothing confirmed — callers decide how to present "no spending yet"
+   * rather than being handed a zero in a currency nobody used.
+   */
+  async totals(filter: TransactionFilter = {}): Promise<CurrencyTotal[]> {
+    const { where, params } = buildWhere({ ...filter, confirmed: true });
+    return this.ctx.driver.all<CurrencyTotal>(
+      `SELECT currency, SUM(amount_minor) AS totalMinor
+       FROM transactions ${where}
+       GROUP BY currency
+       ORDER BY totalMinor DESC`,
+      params,
+    );
+  }
+
+  /** Confirmed spending in one named currency. */
+  async total(currency: Currency, filter: TransactionFilter = {}): Promise<number> {
     const { where, params } = buildWhere({ ...filter, confirmed: true });
     const row = await this.ctx.driver.get<{ total: number | null }>(
-      `SELECT SUM(amount_minor) AS total FROM transactions ${where}`,
-      params,
+      `SELECT SUM(amount_minor) AS total FROM transactions ${where} AND currency = ?`,
+      [...params, currency],
     );
     return row?.total ?? 0;
   }
