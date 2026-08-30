@@ -132,7 +132,10 @@ export default function BackupScreen(): ReactNode {
       // No password and no recovery key: the stored wraps carry both paths
       // forward from the ceremony, which is what lets this run unattended too.
       const result = await createBackup(ledger);
-      setStatus(`Backed up ${formatSize(result.bytes)}.`);
+      setStatus(
+        `Backed up ${formatSize(result.bytes)}.` +
+          (result.pruned === 0 ? '' : ` Removed ${String(result.pruned)} older.`),
+      );
       await refresh();
     } catch (cause) {
       setError(describe(cause));

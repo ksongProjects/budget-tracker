@@ -30,6 +30,15 @@ const APP_VERSION = '0.1.0';
 /** How many archives to keep on the device. See `pruneBackups`. */
 export const KEEP_BACKUPS = 5;
 
+/**
+ * How much of an archive to read when only its header is wanted. Generous by a
+ * wide margin — the header is a few hundred bytes — and still nothing next to
+ * the megabytes behind it.
+ */
+const HEADER_READ_BYTES = 64 * 1024;
+
+const SCHEDULED_RUN_FILE = 'last-scheduled-run.json';
+
 /** Tables a backup carries, in the order Merge expects. */
 const BACKUP_TABLES = [
   'merchants',
@@ -45,6 +54,8 @@ export interface BackupResult {
   readonly path: string;
   readonly bytes: number;
   readonly createdAt: number;
+  /** How many old archives retention deleted to make room for this one. */
+  readonly pruned: number;
 }
 
 export interface BackupOptions {
@@ -191,7 +202,12 @@ export async function createBackup(
   });
   await FileSystem.moveAsync({ from: temporary, to: path });
 
-  return { path, bytes: bytes.length, createdAt };
+  // Retention runs on every write, not only the automatic ones. Hanging it off
+  // the scheduler instead would let a user who backs up by hand fill the device
+  // with archives and never notice.
+  const pruned = await pruneBackups();
+
+  return { path, bytes: bytes.length, createdAt, pruned };
 }
 
 export interface RestoreResult {
@@ -235,7 +251,10 @@ export async function restoreBackup(
   const rows: Record<string, MergeableRow[]> = {};
 
   try {
-    const source = await createExpoDriver('restore.db', snapshotDir);
+    const source = await createExpoDriver('restore.db', {
+      directory: snapshotDir,
+      ownConnection: true,
+    });
     try {
       for (const table of BACKUP_TABLES) {
         rows[table] = await source.all<MergeableRow>(`SELECT * FROM ${table}`);
@@ -353,6 +372,39 @@ export async function pruneBackups(keep = KEEP_BACKUPS): Promise<number> {
   return removed;
 }
 
+export interface ScheduledRun {
+  readonly at: number;
+  readonly outcome: string;
+  readonly bytes?: number;
+  readonly error?: string;
+}
+
+/**
+ * What the OS-scheduled backup did last time it ran.
+ *
+ * The scheduled task runs with no UI and often with no app process to report
+ * to, so without this there is no way to tell "the OS never woke us" from "it
+ * woke us and we declined" or "it woke us and we threw". A few bytes of JSON
+ * beside the archives is the cheapest honest answer.
+ */
+export async function recordScheduledRun(run: ScheduledRun): Promise<void> {
+  await ensureDir();
+  await FileSystem.writeAsStringAsync(`${BACKUP_DIR}${SCHEDULED_RUN_FILE}`, JSON.stringify(run), {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+}
+
+export async function readScheduledRun(): Promise<ScheduledRun | undefined> {
+  try {
+    const text = await FileSystem.readAsStringAsync(`${BACKUP_DIR}${SCHEDULED_RUN_FILE}`, {
+      encoding: FileSystem.EncodingType.UTF8,
+    });
+    return JSON.parse(text) as ScheduledRun;
+  } catch {
+    return undefined;
+  }
+}
+
 /** When this device last wrote a backup, or undefined if it never has. */
 export async function lastBackupAt(): Promise<number | undefined> {
   return (await listBackups())[0]?.createdAt;
@@ -369,8 +421,14 @@ export async function listBackups(): Promise<{ path: string; createdAt: number }
 
     const path = `${BACKUP_DIR}${name}`;
     try {
+      // Only the head: the header is a few hundred bytes at the front, and
+      // reading whole archives to sort them by date would mean holding tens of
+      // megabytes of base64 on the JS heap — during app backgrounding, which is
+      // exactly when the OS is trying to freeze the process.
       const base64 = await FileSystem.readAsStringAsync(path, {
         encoding: FileSystem.EncodingType.Base64,
+        position: 0,
+        length: HEADER_READ_BYTES,
       });
       // The header is readable without any secret, which is the point of
       // keeping it outside the encryption.
