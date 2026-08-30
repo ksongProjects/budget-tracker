@@ -230,6 +230,60 @@ took the emulator down hard enough to need a kill.** The report now lists the
 newest 500 and says where the rest are; the CSV, which no WebView touches, stays
 complete. A 10,000-row ledger exports a 599 KB CSV and an 18-page, 87 KB PDF.
 
+## Addendum 5 — closing what the first pass left unproven
+
+Four seams were named as verified-by-reasoning rather than by running them. All
+four are now exercised, and two of them were hiding defects.
+
+**The OS-scheduled backup does run.** Forced through the real path —
+`adb shell cmd jobscheduler run -f <package> <job id>` — the headless task opened
+its own ledger, wrote a 2,941,682-byte archive, and recorded
+`{"outcome":"written"}`. The hazards feared for that path (no `getRandomValues`
+polyfill, an unreadable keystore) did not materialise on Android.
+
+Two things about it are worth knowing rather than rediscovering:
+
+- **expo-background-task refuses to run tasks while the app is foregrounded** —
+  `runTasks: App is in the foreground` — and merely reschedules.
+  `triggerTaskWorkerForTestingAsync()` therefore returns `null` and does
+  nothing from a screen you are looking at. The diagnostics entry says so
+  instead of pretending to trigger it.
+- **The job it registers carries a network constraint** the API does not let us
+  configure. A backup that needs no network will not fire while the device is
+  offline. Backgrounding remains the mechanism; the schedule is the second
+  chance, exactly as documented.
+
+**A scheduled backup was breaking the running app.** expo-sqlite caches
+connections *by database name*, so the headless task's `openDatabaseAsync`
+returned the same native handle the app was holding — and closing it at the end
+of the task closed the app's ledger. Every query afterwards failed with
+`Call to function 'NativeDatabase.execAsync' has been rejected → NullPointerException`.
+The task now opens with `useNewConnection: true`. Found by running six manual
+backups after a scheduled one, which is not what that test was looking for.
+
+**Retention only ran on automatic backups.** `pruneBackups` hung off the
+scheduler, so a user who backed up by hand accumulated 2.9 MB archives forever.
+It now runs inside `createBackup`, on every write. Verified: six manual backups
+in a row, the count climbs 1→5 and stops, the oldest is the one deleted, and the
+screen says "Removed 1 older".
+
+**Listing archives no longer reads them.** `listBackups` read every archive in
+full to parse a header at the front of it — tens of megabytes of base64 on the
+JS heap, during backgrounding, when the OS is trying to freeze the process. It
+now reads the first 64 KB: five archives listed in 36 ms on device.
+
+**The share sheet and export deletion work.** The chooser resolves the file out
+of the cache directory (the FileProvider root is configured), and deleting
+removes both files.
+
+**And the guards have tests.** `runScheduledBackup` and `ledgerChangedSince`
+moved to `schedule.ts`, free of React Native imports, with the device seams
+passed in. Twelve tests against a real SQLite ledger, including the boundary
+that matters: a row whose `updated_at` equals the last backup's timestamp counts
+as changed. The comparison was exclusive; had the two ever landed in the same
+millisecond the wrong way round, that row would have been left out of every
+future backup until something unrelated touched it.
+
 ## Next
 
 Phase 4 is complete. Phase 5 is the Drive connector, where retention becomes

@@ -92,7 +92,9 @@ Device id in the name lets Merge-aware tooling and the Drive connector prune per
 device.
 
 **On the device today**: keep the newest 5 archives, and delete any `.partial`
-left by an interrupted write. Prune runs after each successful backup. The
+left by an interrupted write. Prune runs inside every successful write —
+automatic and manual alike, because hanging it off the scheduler let a user who
+backed up by hand fill the device and never be told. The
 richer policy — last N *per device*, plus the newest of each of the last three
 months — belongs to the Drive connector, where archives from several devices
 land in one place; on a phone every archive is this device's and the newest is
