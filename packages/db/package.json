@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./drivers/node": {
+      "types": "./dist/drivers/node.d.ts",
+      "default": "./dist/drivers/node.js"
     }
   },
   "scripts": {
