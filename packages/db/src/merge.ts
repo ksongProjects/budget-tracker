@@ -78,6 +78,41 @@ export const MERGE_TABLES: readonly MergeTable[] = [
  * Caller supplies the rows rather than a second database handle, so this works
  * the same whether they came from an archive, another table, or a test.
  */
+/** SQLite's default parameter limit is 999; stay well inside it. */
+const LOOKUP_CHUNK = 400;
+
+/**
+ * Load the local rows matching the incoming ids, in bulk.
+ *
+ * One query per row is what this replaces: restoring a 10,000-row backup on a
+ * device took minutes that way, because every row crossed the native bridge
+ * twice. Restore has to work at the size a real ledger reaches.
+ */
+async function loadExisting(
+  ctx: RepositoryContext,
+  table: MergeTable,
+  ids: readonly string[],
+): Promise<Map<string, MergeableRow>> {
+  const existing = new Map<string, MergeableRow>();
+
+  for (let offset = 0; offset < ids.length; offset += LOOKUP_CHUNK) {
+    const slice = ids.slice(offset, offset + LOOKUP_CHUNK);
+    const placeholders = slice.map(() => '?').join(', ');
+
+    const rows = await ctx.driver.all<MergeableRow>(
+      `SELECT * FROM ${table.name} WHERE ${table.key} IN (${placeholders})`,
+      slice,
+    );
+
+    for (const row of rows) {
+      const key = row[table.key];
+      if (typeof key === 'string') existing.set(key, row);
+    }
+  }
+
+  return existing;
+}
+
 export async function mergeTable(
   ctx: RepositoryContext,
   table: MergeTable,
@@ -88,19 +123,25 @@ export async function mergeTable(
   let kept = 0;
   let tombstoned = 0;
 
-  for (const row of incoming) {
+  const ids = incoming.map((row) => {
     const id = row[table.key];
     if (typeof id !== 'string') {
       throw new DatabaseError(`row in ${table.name} has no ${table.key}`);
     }
+    return id;
+  });
 
-    const local = await ctx.driver.get<MergeableRow>(
-      `SELECT * FROM ${table.name} WHERE ${table.key} = ?`,
-      [id],
-    );
+  const existing = await loadExisting(ctx, table, ids);
+
+  for (const [index, row] of incoming.entries()) {
+    const id = ids[index] ?? '';
+    const local = existing.get(id);
 
     if (!local) {
       await insertRow(ctx, table, row);
+      // Keep the map current: a batch may carry the same id twice, and the
+      // second copy must compare against what was just written.
+      existing.set(id, row);
       inserted += 1;
       continue;
     }
@@ -116,6 +157,7 @@ export async function mergeTable(
     tombstoned += 1;
 
     await updateRow(ctx, table, id, row);
+    existing.set(id, row);
     updated += 1;
   }
 

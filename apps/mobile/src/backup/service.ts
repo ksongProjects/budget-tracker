@@ -6,6 +6,7 @@ import type { SodiumBackend } from '@budget/crypto';
 import { readArchive, readHeader, writeArchive } from '@budget/backup';
 import type { ArchiveEntry } from '@budget/backup';
 import { createNativeSodiumBackend } from '../crypto/backend';
+import { createExpoDriver } from '../db/driver';
 import {
   adoptKeyMaterial,
   loadOrCreateKeyMaterial,
@@ -202,7 +203,6 @@ export async function restoreBackup(
   });
 
   const rows: Record<string, MergeableRow[]> = {};
-  const { createExpoDriver } = await import('../db/driver');
   const source = await createExpoDriver('restore.db');
 
   try {

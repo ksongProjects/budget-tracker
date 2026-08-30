@@ -298,6 +298,33 @@ describe('mergeAll', () => {
     expect(await tombstonesFor(ctx, 'transactions', 't1')).toHaveLength(0);
   });
 
+  it('applies the newer of two revisions of one row in the same batch', async () => {
+    // Batched lookups must not compare the second copy against a stale row.
+    await mergeTable(ctx, { name: 'transactions', key: 'id' }, [
+      txn({ rev: 1, amount_minor: 100 }),
+      txn({ rev: 2, amount_minor: 200 }),
+    ]);
+
+    const stored = await driver.get<{ amount_minor: number }>(
+      'SELECT amount_minor FROM transactions WHERE id = ?',
+      ['t1'],
+    );
+    expect(stored?.amount_minor).toBe(200);
+  });
+
+  it('keeps the newer revision when the older one comes second', async () => {
+    await mergeTable(ctx, { name: 'transactions', key: 'id' }, [
+      txn({ rev: 2, amount_minor: 200 }),
+      txn({ rev: 1, amount_minor: 100 }),
+    ]);
+
+    const stored = await driver.get<{ amount_minor: number }>(
+      'SELECT amount_minor FROM transactions WHERE id = ?',
+      ['t1'],
+    );
+    expect(stored?.amount_minor).toBe(200);
+  });
+
   it('ignores tables the archive does not carry', async () => {
     const stats = await mergeAll(ctx, { transactions: [txn()] });
     expect(stats['merchants']).toBeUndefined();
