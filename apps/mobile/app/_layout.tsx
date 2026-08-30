@@ -60,6 +60,8 @@ function LedgerGate(): ReactNode {
       <Stack.Screen name="add" options={{ title: 'New spend', presentation: 'modal' }} />
       <Stack.Screen name="summary" options={{ title: 'Summary' }} />
       <Stack.Screen name="transaction/[id]" options={{ title: 'Spend' }} />
+      <Stack.Screen name="capture" options={{ title: 'Photograph receipt' }} />
+      <Stack.Screen name="confirm/[captureId]" options={{ title: 'Check the details' }} />
       <Stack.Screen name="diagnostics" options={{ title: 'Diagnostics' }} />
     </Stack>
   );

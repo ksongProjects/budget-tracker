@@ -80,11 +80,18 @@ export default function LedgerScreen(): ReactNode {
         contentContainerStyle={styles.listContent}
       />
 
-      <Link href="/add" asChild>
-        <Pressable style={styles.fab} accessibilityLabel="Add a spend">
-          <Text style={styles.fabText}>+</Text>
-        </Pressable>
-      </Link>
+      <View style={styles.fabRow}>
+        <Link href="/add" asChild>
+          <Pressable style={styles.fabSecondary} accessibilityLabel="Type a spend">
+            <Text style={styles.fabSecondaryText}>+</Text>
+          </Pressable>
+        </Link>
+        <Link href="/capture" asChild>
+          <Pressable style={styles.fab} accessibilityLabel="Photograph a receipt">
+            <Text style={styles.fabText}>◉</Text>
+          </Pressable>
+        </Link>
+      </View>
     </View>
   );
 }
@@ -215,10 +222,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   primaryButtonText: { color: colors.accentText, fontWeight: '600', fontSize: 16 },
-  fab: {
+  fabRow: {
     position: 'absolute',
     right: spacing.lg,
     bottom: spacing.xl,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  fab: {
     width: 60,
     height: 60,
     borderRadius: 30,
@@ -226,5 +238,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fabText: { color: colors.accentText, fontSize: 32, lineHeight: 36, fontWeight: '600' },
+  fabText: { color: colors.accentText, fontSize: 28, lineHeight: 32, fontWeight: '600' },
+  fabSecondary: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fabSecondaryText: { color: colors.text, fontSize: 26, lineHeight: 30, fontWeight: '600' },
 });
