@@ -23,6 +23,7 @@ with nothing else on hand. Keys per [crypto-design.md](crypto-design.md).
     kdf: { alg: "argon2id", salt, m, t, p }
     bmk_wraps: [ { by: "password", nonce, ct }, { by: "recovery", nonce, ct } ]
     ak_wrap:   { nonce, ct }                    # AK wrapped by BMK
+    nonce_prefix: bytes(16)                     # random per archive; see frames
     created_at, app_version, schema_version
 ]
 [ frame 0 | frame 1 | ... | final frame ]
@@ -34,7 +35,7 @@ Each frame:
 [ len u32 | ciphertext ]
 ciphertext = XChaCha20-Poly1305(
     key   = AK,
-    nonce = 16-byte random prefix (fixed per archive, in header) || u64 frame counter,
+    nonce = header.nonce_prefix (16 B) || u64 frame counter,
     ad    = magic || version || frame counter || final_flag,
     body )
 ```
