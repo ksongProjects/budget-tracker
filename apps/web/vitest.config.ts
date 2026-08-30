@@ -38,6 +38,11 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
+    // One file at a time. The OPFS pool hands its access handles to a single
+    // holder per origin, so two suites opening databases at once means the
+    // second waits on the first and times out — intermittently, depending on
+    // which finishes when.
+    fileParallelism: false,
     globalSetup: ['./test/fake-drive-server.ts'],
     browser: {
       enabled: true,

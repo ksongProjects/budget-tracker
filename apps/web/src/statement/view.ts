@@ -1,0 +1,302 @@
+import { CurrencySchema, formatAmount } from '@budget/schema';
+import type { Currency } from '@budget/schema';
+import type { RepositoryContext } from '@budget/db';
+import { guessMapping, isComplete, parseCsv } from '@budget/extract';
+import type { ColumnMapping, CsvTable, DateOrder } from '@budget/extract';
+import { commitImport, previewImport } from './import';
+import type { ImportPreview } from './import';
+
+/**
+ * The statement import screen.
+ *
+ * The mapping is shown and editable before anything is read, because the two
+ * decisions this file cannot make — which column is which, and whether
+ * `03/04` is March or April — are exactly the ones that silently produce a
+ * plausible wrong ledger. A guess is offered; the user confirms it.
+ *
+ * Nothing is written until the preview has been seen.
+ */
+
+export interface StatementScreen {
+  readonly element: HTMLElement;
+}
+
+interface State {
+  table: CsvTable | undefined;
+  mapping: Partial<ColumnMapping>;
+  dateOrder: DateOrder;
+  currency: Currency;
+  debitsArePositive: boolean;
+  /** Cleared whenever a setting changes, so a stale preview is never acted on. */
+  preview: ImportPreview | undefined;
+}
+
+export function statementView(
+  ctx: RepositoryContext,
+  onImported: (message: string) => void,
+): HTMLElement {
+  const state: State = {
+    table: undefined,
+    preview: undefined,
+    mapping: {},
+    dateOrder: 'ymd',
+    currency: CurrencySchema.parse('USD'),
+    debitsArePositive: false,
+  };
+
+  const section = document.createElement('section');
+  // Named for the route it serves, so navigation and the DOM agree.
+  section.id = 'import';
+
+  const file = document.createElement('input');
+  file.type = 'file';
+  file.id = 'statement-file';
+  file.accept = '.csv,text/csv';
+
+  const body = document.createElement('div');
+  body.id = 'statement-body';
+
+  file.addEventListener('change', () => {
+    const chosen = file.files?.[0];
+    if (chosen === undefined) return;
+
+    void chosen.text().then((text) => {
+      state.table = parseCsv(text);
+      state.mapping = guessMapping(state.table.header);
+      state.preview = undefined;
+      draw();
+    });
+  });
+
+  section.append(
+    paragraph(
+      'Import a CSV your bank exported. Nothing is added until you have seen what it ' +
+        'would do.',
+    ),
+    file,
+    body,
+  );
+
+  draw();
+  return section;
+
+  function draw(): void {
+    body.replaceChildren();
+
+    const table = state.table;
+    if (table === undefined) return;
+
+    body.append(headingOf('Which column is which'));
+    for (const [field, label] of [
+      ['date', 'Date'],
+      ['amount', 'Amount'],
+      ['description', 'Description'],
+      ['credit', 'Money in (optional)'],
+      ['currency', 'Currency (optional)'],
+    ] as const) {
+      body.append(columnPicker(table, field, label));
+    }
+
+    body.append(headingOf('How to read it'));
+    body.append(
+      choice(
+        'date-order',
+        'Date order',
+        [
+          ['ymd', 'Year first (2026-03-14)'],
+          ['dmy', 'Day first (14/03/2026)'],
+          ['mdy', 'Month first (03/14/2026)'],
+        ],
+        state.dateOrder,
+        (value) => {
+          state.dateOrder = value as DateOrder;
+          state.preview = undefined;
+        },
+      ),
+    );
+
+    const currency = document.createElement('input');
+    currency.id = 'statement-currency';
+    currency.value = state.currency;
+    currency.addEventListener('change', () => {
+      const parsed = CurrencySchema.safeParse(currency.value.trim().toUpperCase());
+      if (parsed.success) state.currency = parsed.data;
+      state.preview = undefined;
+    });
+    body.append(labelled('Currency', currency));
+
+    const sign = document.createElement('input');
+    sign.type = 'checkbox';
+    sign.id = 'debits-positive';
+    sign.checked = state.debitsArePositive;
+    sign.addEventListener('change', () => {
+      state.debitsArePositive = sign.checked;
+      state.preview = undefined;
+    });
+    body.append(labelled('This bank writes spending as a positive number', sign));
+
+    const check = document.createElement('button');
+    check.type = 'button';
+    check.id = 'statement-preview';
+    check.textContent = 'See what this would import';
+    check.addEventListener('click', () => {
+      void runPreview();
+    });
+    body.append(check);
+
+    if (!isComplete(state.mapping)) {
+      body.append(
+        paragraph('Choose a date, an amount and a description column before importing.'),
+      );
+      check.disabled = true;
+    }
+
+    if (state.preview !== undefined) body.append(previewOf(state.preview));
+  }
+
+  async function runPreview(): Promise<void> {
+    const table = state.table;
+    if (table === undefined || !isComplete(state.mapping)) return;
+
+    state.preview = await previewImport(ctx, table, {
+      mapping: state.mapping,
+      dateOrder: state.dateOrder,
+      currency: state.currency,
+      debitsArePositive: state.debitsArePositive,
+    });
+
+    draw();
+  }
+
+  function previewOf(preview: ImportPreview): HTMLElement {
+    const holder = document.createElement('div');
+    holder.id = 'statement-preview-result';
+
+    holder.append(
+      paragraph(
+        `${String(preview.fresh.length)} to import, ` +
+          `${String(preview.duplicates.length)} already in your ledger, ` +
+          `${String(preview.problems.length)} that could not be read.`,
+      ),
+    );
+
+    if (preview.problems.length > 0) {
+      const problems = document.createElement('ul');
+      problems.id = 'statement-problems';
+
+      for (const problem of preview.problems) {
+        const item = document.createElement('li');
+        // The line number is what the user sees in a spreadsheet, so they can
+        // go and look at the row rather than take our word for it.
+        item.textContent = `Line ${String(problem.line)}: ${problem.reason}`;
+        problems.append(item);
+      }
+      holder.append(problems);
+    }
+
+    const sample = document.createElement('ul');
+    sample.id = 'statement-sample';
+    for (const row of preview.fresh.slice(0, 10)) {
+      const item = document.createElement('li');
+      item.textContent = `${new Date(row.occurredAt).toISOString().slice(0, 10)} · ${
+        row.description
+      } · ${formatAmount(row.amountMinor, row.currency)} ${row.currency}`;
+      sample.append(item);
+    }
+    holder.append(sample);
+
+    const confirm = document.createElement('button');
+    confirm.type = 'button';
+    confirm.id = 'statement-import';
+    confirm.textContent = `Import ${String(preview.fresh.length)}`;
+    confirm.disabled = preview.fresh.length === 0;
+
+    confirm.addEventListener('click', () => {
+      void commitImport(ctx, preview.fresh).then((result) => {
+        onImported(
+          `Imported ${String(result.imported)} entries. They are waiting to be confirmed.`,
+        );
+      });
+    });
+
+    holder.append(confirm);
+    return holder;
+  }
+
+  function columnPicker(
+    table: CsvTable,
+    field: keyof ColumnMapping,
+    label: string,
+  ): HTMLElement {
+    const select = document.createElement('select');
+    select.id = `column-${field}`;
+
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = '—';
+    select.append(none);
+
+    for (const [index, name] of table.header.entries()) {
+      const option = document.createElement('option');
+      option.value = String(index);
+      // The bank's own column name, as text: a header is untrusted input like
+      // any other part of the file.
+      option.textContent = name;
+      if (state.mapping[field] === index) option.selected = true;
+      select.append(option);
+    }
+
+    select.addEventListener('change', () => {
+      const value = select.value === '' ? undefined : Number(select.value);
+      state.mapping = { ...state.mapping, [field]: value };
+      state.preview = undefined;
+      draw();
+    });
+
+    return labelled(label, select);
+  }
+}
+
+function choice(
+  id: string,
+  label: string,
+  options: readonly (readonly [string, string])[],
+  selected: string,
+  onChange: (value: string) => void,
+): HTMLElement {
+  const select = document.createElement('select');
+  select.id = id;
+
+  for (const [value, text] of options) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = text;
+    if (value === selected) option.selected = true;
+    select.append(option);
+  }
+
+  select.addEventListener('change', () => {
+    onChange(select.value);
+  });
+
+  return labelled(label, select);
+}
+
+function labelled(text: string, control: HTMLElement): HTMLElement {
+  const label = document.createElement('label');
+  label.textContent = `${text} `;
+  label.append(control);
+  return label;
+}
+
+function paragraph(text: string): HTMLElement {
+  const element = document.createElement('p');
+  element.textContent = text;
+  return element;
+}
+
+function headingOf(text: string): HTMLElement {
+  const element = document.createElement('h2');
+  element.textContent = text;
+  return element;
+}

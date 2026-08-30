@@ -12,6 +12,8 @@ import { createDriveConnector } from './cloud/drive';
 import { allRows, displayAmount, groupByDay, monthTotals, recentRows } from './ledger/rows';
 import type { LedgerRow } from './ledger/rows';
 import { csvExport, printReport, reportHtml, save } from './export/download';
+import { statementView } from './statement/view';
+import { confirmAll, pendingRows } from './statement/import';
 
 /**
  * The web app: a ledger you can read, add to, and get back out.
@@ -25,7 +27,7 @@ import { csvExport, printReport, reportHtml, save } from './export/download';
  * Nothing here builds markup out of data.
  */
 
-type View = 'ledger' | 'summary' | 'add' | 'backup' | 'export' | 'edit';
+type View = 'ledger' | 'summary' | 'add' | 'backup' | 'export' | 'edit' | 'import' | 'pending';
 
 interface App {
   readonly ctx: RepositoryContext;
@@ -38,6 +40,8 @@ let view: View = 'ledger';
 let notice = '';
 /** Which transaction the edit screen is showing. */
 let editing: string | undefined;
+/** Set while the app navigates itself, so the notice it just wrote survives. */
+let keepNotice = false;
 
 export interface Session {
   /** Releases the worker, and with it the exclusive OPFS handles it holds. */
@@ -64,8 +68,11 @@ export async function start(root: HTMLElement, options: StartOptions = {}): Prom
   // unhandled rejection in anything that starts a second.
   const onHashChange = (): void => {
     if (app === undefined) return;
+
     view = routeOf(location.hash);
-    notice = '';
+    if (keepNotice) keepNotice = false;
+    else notice = '';
+
     void render(root);
   };
   window.addEventListener('hashchange', onHashChange);
@@ -87,6 +94,28 @@ export async function start(root: HTMLElement, options: StartOptions = {}): Prom
   };
 }
 
+/**
+ * Change screen, and say so in the URL.
+ *
+ * A view the app switched to on its own used to leave the address bar pointing
+ * at the previous one, which meant back and forward went somewhere the user had
+ * not been — and meant navigating "again" to the screen you were already
+ * nominally on did nothing at all.
+ */
+function navigate(root: HTMLElement, next: View, message = ''): void {
+  notice = message;
+  view = next;
+
+  const target = `#${next}`;
+  if (location.hash === target) {
+    void render(root);
+    return;
+  }
+
+  keepNotice = true;
+  location.hash = target;
+}
+
 function routeOf(hash: string): View {
   const name = hash.replace('#', '');
 
@@ -95,9 +124,8 @@ function routeOf(hash: string): View {
     return 'edit';
   }
 
-  return name === 'summary' || name === 'add' || name === 'backup' || name === 'export'
-    ? name
-    : 'ledger';
+  const known: readonly View[] = ['summary', 'add', 'backup', 'export', 'import', 'pending'];
+  return known.includes(name as View) ? (name as View) : 'ledger';
 }
 
 async function render(root: HTMLElement): Promise<void> {
@@ -124,6 +152,16 @@ async function render(root: HTMLElement): Promise<void> {
     case 'edit':
       root.append(await editView(root, current));
       break;
+    case 'import':
+      root.append(
+        statementView(current.ctx, (message) => {
+          navigate(root, 'pending', message);
+        }),
+      );
+      break;
+    case 'pending':
+      root.append(await pendingView(root, current));
+      break;
   }
 }
 
@@ -134,6 +172,8 @@ function nav(): HTMLElement {
     ['ledger', 'Ledger'],
     ['summary', 'Summary'],
     ['add', 'Add'],
+    ['import', 'Import'],
+    ['pending', 'Pending'],
     ['backup', 'Backup'],
     ['export', 'Export'],
   ] as const) {
@@ -285,9 +325,8 @@ async function addTransaction(
       reconciled: false,
     });
 
-    notice = `Added ${formatAmount(minor, currency)} ${currency}.`;
-    view = 'ledger';
-    location.hash = '#ledger';
+    navigate(root, 'ledger', `Added ${formatAmount(minor, currency)} ${currency}.`);
+    return;
   } catch (cause) {
     notice = cause instanceof Error ? cause.message : String(cause);
   }
@@ -337,6 +376,84 @@ function backupView(root: HTMLElement, current: App): HTMLElement {
   section.append(file, secret, open);
   section.append(driveSection(root, current, secret));
 
+  return section;
+}
+
+/**
+ * Confirming imported rows, several at a time.
+ *
+ * A statement lands as candidate data — a hundred rows nobody has looked at —
+ * and confirming them one at a time is how a user gives up and stops
+ * confirming at all. Which would leave every total in the app wrong in the
+ * quiet direction, since unconfirmed rows are never counted.
+ */
+async function pendingView(root: HTMLElement, current: App): Promise<HTMLElement> {
+  const section = element('section');
+  section.id = 'pending';
+
+  const rows = await pendingRows(current.ctx);
+  if (rows.length === 0) {
+    section.append(element('p', 'Nothing is waiting to be confirmed.'));
+    return section;
+  }
+
+  section.append(
+    element(
+      'p',
+      `${String(rows.length)} entries are waiting. They are in your ledger but not in any ` +
+        'total until you confirm them.',
+    ),
+  );
+
+  const list = element('ul');
+  const boxes: HTMLInputElement[] = [];
+
+  for (const row of rows) {
+    const item = element('li');
+
+    const box = element('input');
+    box.type = 'checkbox';
+    box.value = row.id;
+    box.checked = true;
+    box.className = 'pending-row';
+    boxes.push(box);
+
+    const label = element('label');
+    label.append(box);
+    label.append(
+      element(
+        'span',
+        ` ${new Date(row.occurredAt).toISOString().slice(0, 10)} · ${row.note} · ` +
+          `${formatAmount(row.amountMinor, row.currency)} ${row.currency}`,
+      ),
+    );
+
+    item.append(label);
+    list.append(item);
+  }
+  section.append(list);
+
+  const confirm = element('button', 'Confirm the ticked entries');
+  confirm.type = 'button';
+  confirm.id = 'confirm-selected';
+  confirm.addEventListener('click', () => {
+    const ids = boxes.filter((box) => box.checked).map((box) => box.value);
+
+    void (async () => {
+      try {
+        const confirmed = await confirmAll(current.ctx, ids);
+        navigate(
+          root,
+          'pending',
+          `Confirmed ${String(confirmed)}. They count towards your totals now.`,
+        );
+      } catch (cause) {
+        setNotice(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+  });
+
+  section.append(confirm);
   return section;
 }
 
@@ -431,8 +548,9 @@ async function saveEdit(
 async function withRow(root: HTMLElement, work: () => Promise<void>): Promise<void> {
   try {
     await work();
-    view = 'ledger';
     editing = undefined;
+    navigate(root, 'ledger', notice);
+    return;
   } catch (cause) {
     notice = cause instanceof Error ? cause.message : String(cause);
   }
@@ -554,9 +672,8 @@ async function restoreFromDrive(
       DATABASE_NAME,
     );
 
-    notice = `Restored a backup from ${new Date(result.createdAt).toLocaleString()}.`;
-    view = 'ledger';
-    await render(root);
+    navigate(root, 'ledger', `Restored a backup from ${new Date(result.createdAt).toLocaleString()}.`);
+    return;
   } catch (cause) {
     setNotice(cause instanceof Error ? cause.message : String(cause));
   }
@@ -607,11 +724,14 @@ async function openBackup(
     const total = (field: 'inserted' | 'updated' | 'kept'): number =>
       Object.values(result.merged).reduce((sum, stats) => sum + stats[field], 0);
 
-    notice =
+    navigate(
+      root,
+      'ledger',
       `Opened a backup from ${new Date(result.createdAt).toLocaleString()}: ` +
-      `${String(total('inserted'))} added, ${String(total('updated'))} updated, ` +
-      `${String(total('kept'))} already current.`;
-    view = 'ledger';
+        `${String(total('inserted'))} added, ${String(total('updated'))} updated, ` +
+        `${String(total('kept'))} already current.`,
+    );
+    return;
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     notice = /unwrap|decrypt|authentic/i.test(message)

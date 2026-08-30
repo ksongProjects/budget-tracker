@@ -167,6 +167,9 @@ importers:
       '@budget/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@budget/extract':
+        specifier: workspace:*
+        version: link:../../packages/extract
       '@budget/report':
         specifier: workspace:*
         version: link:../../packages/report
