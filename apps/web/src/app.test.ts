@@ -35,11 +35,24 @@ afterEach(async () => {
 async function go(view: string): Promise<void> {
   location.hash = `#${view}`;
   // The hashchange handler renders asynchronously.
-  await settle();
+  await waitFor(() => root.querySelector(`#${view}`) !== null || view === 'edit');
 }
 
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 60));
+/**
+ * Wait for the screen to say something, rather than for a number of
+ * milliseconds.
+ *
+ * A fixed delay is a guess about the slowest machine that will ever run this,
+ * and CI is always slower than the machine the guess was made on. This one
+ * failed there and passed here, which is the whole reason it is polling now.
+ */
+async function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for the screen');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 async function addSpend(amount: string, note: string): Promise<void> {
@@ -49,7 +62,8 @@ async function addSpend(amount: string, note: string): Promise<void> {
   field('#note').value = note;
   field('#submit').click();
 
-  await settle();
+  // Either it landed on the ledger, or the form is still up with a complaint.
+  await waitFor(() => root.querySelector('#ledger') !== null || text('#notice') !== '');
 }
 
 function field(selector: string): HTMLInputElement {
@@ -93,7 +107,7 @@ describe('editing a spend', () => {
   async function openFirstRow(): Promise<void> {
     await go('ledger');
     root.querySelector<HTMLAnchorElement>('#ledger a.open')?.click();
-    await settle();
+    await waitFor(() => root.querySelector('#edit') !== null);
   }
 
   it('opens from the ledger', async () => {
@@ -110,7 +124,7 @@ describe('editing a spend', () => {
 
     field('#edit-amount').value = '5.25';
     field('#save').click();
-    await settle();
+    await waitFor(() => text('#ledger').includes('5.25 USD'));
 
     expect(text('#ledger')).toContain('5.25 USD');
   });
@@ -121,7 +135,7 @@ describe('editing a spend', () => {
 
     field('#edit-amount').value = 'about five';
     field('#save').click();
-    await settle();
+    await waitFor(() => text('#notice') !== '');
 
     expect(text('#notice')).not.toBe('');
     await go('ledger');
@@ -133,7 +147,7 @@ describe('editing a spend', () => {
     await openFirstRow();
 
     field('#delete').click();
-    await settle();
+    await waitFor(() => root.textContent?.includes('Nothing captured yet') === true);
 
     expect(root.textContent).toContain('Nothing captured yet');
   });
@@ -144,7 +158,7 @@ describe('editing a spend', () => {
     await openFirstRow();
 
     field('#delete').click();
-    await settle();
+    await waitFor(() => root.querySelector('#ledger') !== null);
     await go('summary');
 
     // Whichever row was first, one of them is gone and the total is the other.
@@ -187,7 +201,7 @@ describe('the backup screen', () => {
 
     await go('backup');
     field('#list-drive').click();
-    await settle();
+    await waitFor(() => root.querySelectorAll('#drive-list li').length > 0);
 
     expect(root.querySelectorAll('#drive-list li').length).toBeGreaterThan(0);
   });
@@ -195,10 +209,10 @@ describe('the backup screen', () => {
   it('will not restore from Drive without a secret', async () => {
     await go('backup');
     field('#list-drive').click();
-    await settle();
+    await waitFor(() => root.querySelectorAll('#drive-list li').length > 0);
 
     root.querySelector<HTMLButtonElement>('#drive-list button')?.click();
-    await settle();
+    await waitFor(() => text('#notice').includes('password'));
 
     expect(text('#notice')).toContain('password');
   });
@@ -207,7 +221,7 @@ describe('the backup screen', () => {
     await go('backup');
 
     field('#open').click();
-    await settle();
+    await waitFor(() => text('#notice').includes('Choose a backup file'));
 
     expect(text('#notice')).toContain('Choose a backup file');
   });
