@@ -2,8 +2,8 @@
 
 **Dates**: 2026-08-30
 **Phase goal**: Photograph a receipt, see the total, confirm, done.
-**Outcome**: shipped-with-deviations — capture and confirm work on device; OCR
-itself is unverified because it needs a development build.
+**Outcome**: shipped — capture, extraction, and confirmation all verified on a
+device, and the performance budgets are finally measured. Auto-crop deferred.
 
 ## Tasks
 
@@ -11,12 +11,12 @@ itself is unverified because it needs a development build.
 |---|---|---|
 | 3.0 Device run (Phase 2 exit condition) | done | emulator; found a launch-blocking bug |
 | 3.1 Camera + document storage | done | photo captured and stored on device |
-| 3.2 On-device OCR adapter | done, unverified | interface + ML Kit adapter; no engine in Expo Go |
+| 3.2 On-device OCR adapter | done, verified | ML Kit on a dev build; found the column-split bug |
 | 3.3 Tier 2 receipt heuristics | done | 34 tests |
 | 3.4 Confirm screen | done | verified on device |
 | 3.5 Redaction masking | done | 25 tests |
 | 3.5 Auto-crop / crop adjust | **not done** | deferred |
-| 2.6 Perf harness (carried) | **not done** | deferred again |
+| 2.6 Perf harness (carried) | done | all budgets measured, all passing |
 
 ## The device run, and what it caught
 
@@ -54,7 +54,7 @@ The Phase 2 error screen did its job: it named the failure instead of spinning.
 
 ## Test evidence
 
-`pnpm check` green: **232 tests**, up from 174.
+`pnpm check` green: **253 tests**, up from 174.
 
 - **Receipt heuristics (34 tests).** Prefers an explicit "amount due" over a
   bare "total"; is not fooled by subtotal, tax, tip, cash, or change lines;
@@ -68,17 +68,68 @@ The Phase 2 error screen did its job: it named the failure instead of spinning.
   they are far more often dates or order ids, and masking them would eat real
   data.
 
-## What is still unverified
+## OCR, verified on a development build
 
-**OCR has never run.** Text recognition is a native module, absent from Expo Go,
-so the confirm screen took its no-engine path in every device test. The
-heuristics are tested against fixture OCR text, but the seam between a real
-engine's output and those rules is untested. Closing it needs
-`npx expo run:android` and a development build.
+A development build (`npx expo run:android`) was produced and ML Kit ran against
+a known receipt on the device. **This immediately found a real bug that no
+fixture test could have.**
 
-The graceful degradation was verified, and it is the right behaviour rather than
-a workaround: a photo plus a hand-typed total is a complete, correct
+ML Kit emits a receipt's label column and amount column as **separate lines**:
+`TAX` and `0.85` arrive apart, not as `TAX 0.85`. Every rule was written against
+fixture text with them on one line, so against real output the extractor found
+**no tax at all**, and got the total only by falling through to its
+largest-amount guess — right on this receipt by luck, and wrong on any receipt
+with one large line item.
+
+The fix, `mergeColumns`, pairs an amount-only line with the label sharing its
+row using bounding boxes. Its tolerance is a fraction of the median line height
+rather than of the page, because engines report boxes in different units — ML
+Kit in pixels, others normalized. Without boxes the lines are left untouched:
+guessing at pairing would invent numbers.
+
+The committed fixture now reproduces real ML Kit output rather than idealized
+text. Verified on device after the fix: total 10.60, tax 0.85, merchant
+`BLUE BOTTLE COFFEE`, card 4242, date Mar 14 2026 — every field correct, where
+tax previously read "not found". Recognition takes 519–1154 ms.
+
+Getting there needed three build fixes, all recorded in the repo:
+`react-native-worklets` pinned to a version `expo-modules-core` compiles against,
+and `react-native-reanimated` plus `react-native-gesture-handler` excluded from
+autolinking — neither is used, and gesture-handler's generated paths exceed the
+Windows 260-character limit.
+
+Graceful degradation in Expo Go was also verified, and it is the right behaviour
+rather than a workaround: a photo plus a hand-typed total is a complete, correct
 transaction. OCR only saves typing.
+
+## Performance — measured at last
+
+The harness carried since Phase 2 now exists and has run. Numbers from a Pixel 9
+emulator with **10,000 transactions** seeded, so the indexes do real work:
+
+| Metric | Measured | Budget |
+|---|---|---|
+| Cold start to interactive ledger | **565 ms** | 1500 ms |
+| Ledger page query (50 rows) | **9 ms** | 50 ms |
+| Ledger page query over 10k rows | **8 ms** | 50 ms |
+| Summary by category over 10k rows | **9 ms** | 50 ms |
+| Summary by month | **12 ms** | 50 ms |
+| Full-text search | **9 ms** | 50 ms |
+| Seed 10k transactions | 22.4 s | 60 s |
+
+**All within budget**, most by a factor of five or more. ADR 0009's claim that
+on-device SQLite answers in single-digit milliseconds at this scale is now
+measured rather than asserted — and the page query barely moves between a
+handful of rows and 10,000, which is the partial indexes doing their job.
+
+The harness had a bug of its own on the first run: cold start ran from bundle
+load to whenever the tester pressed the button, and reported **71 seconds**. It
+now ends when the ledger first paints. That error was in the alarming direction,
+which is how it got caught; the same mistake in the flattering direction would
+still be sitting there.
+
+Not measured yet: shutter-to-preview, list scroll frame rate, and backup write.
+The first two need frame instrumentation rather than a timer.
 
 ## Deviations from plan
 
@@ -86,26 +137,32 @@ transaction. OCR only saves typing.
   UX control, not a security boundary, so it ranks below getting capture working
   end to end. Redaction — the part that is still security-relevant, because it
   gates what opt-in Cloud Assist may send — was built and tested instead.
-- **The perf harness slipped again.** It needs sustained device access, and this
-  phase's device time went to the crypto bug and the capture flow.
+- **Three native dependencies are pinned or excluded** to make the Android build
+  work: `react-native-worklets` pinned to what `expo-modules-core` compiles
+  against, and `react-native-reanimated` and `react-native-gesture-handler`
+  excluded from autolinking. Nothing uses either; gesture-handler's generated
+  paths also exceed the Windows 260-character limit.
 - **`expo-file-system/legacy`** is used in `documents.ts`. SDK 54 introduced a
   File/Directory API; migrating is worth doing when there is another reason to
   touch that file.
 
 ## Risks carried forward
 
-- **OCR is the unverified seam**, and it is the one the phase was named for.
+- **OCR is verified against one synthetic receipt, on one engine.** Crisp
+  rendered text is the easy case; real photos bring skew, glare, and crumpled
+  paper, and iOS Vision has not been run at all. The gitignored corpus of real
+  scans is what would turn this into a real accuracy number.
 - **Coordinate before touching the emulator.** Two runs were lost when the
   emulator was closed while tests were in flight. Nothing was wrong with how it
   was launched — an earlier version of this report guessed at process reaping
   and was wrong.
-- **Perf budgets remain entirely unmeasured** four phases in.
 - **Merchant-merge, currency picker** still carried from Phases 1 and 2.
 - **Captures are not deletable from the UI.** `deleteDocument` exists and is
   unused; deleting a transaction currently leaves its photo on disk.
 
 ## Next
 
-A development build, to verify OCR against a real engine and finally run the
-perf harness. Then Phase 4 (backup, restore, merge) — the highest-stakes phase
-in the plan, and the one where a bug loses user data rather than annoying them.
+Phase 4: backup, restore, and merge — the highest-stakes phase in the plan, and
+the one where a bug loses user data rather than annoying someone. Still carried:
+auto-crop, merchant-merge, a currency picker, and deleting a transaction's photo
+when the transaction goes.
