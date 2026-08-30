@@ -1,6 +1,6 @@
 # ADR 0006 — Split trust: E2EE documents, server-readable ledger
 
-**Status**: accepted · 2026-08-28 · supersedes [ADR 0001](0001-privacy-posture.md)
+**Status**: superseded by [ADR 0011](0011-local-first.md) · 2026-08-29 · supersedes [ADR 0001](0001-privacy-posture.md)
 
 ## Context
 

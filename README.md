@@ -6,26 +6,30 @@ have it land as structured, categorized transaction data.
 
 ## Status
 
-Design phase. No code yet. Architecture decisions live in [`docs/adr/`](docs/adr/).
+Design phase. No code yet. Architecture pivoted to **local-first** in
+[ADR 0011](docs/adr/0011-local-first.md); implementation runs per the
+[implementation plan](docs/implementation-plan.md). Docs below ADR level are being
+reconciled to the pivot in Phase 0 — where a doc contradicts ADR 0011, the ADR wins.
 
 ## Shape
 
-- **Mobile** — React Native + Expo (iOS + Android)
-- **Web** — Vite + React SPA
-- **Server** — FastAPI + Postgres + object storage + Redis queue
-- **Extractor** — separate microservice: OCR, PDF rules, speech-to-text, LLM structuring
-- **Privacy** — split trust. Receipt images, statement PDFs, and audio are end-to-end
-  encrypted and unreadable by the server. Transaction data is encrypted in transit and
-  at rest, and is processed and queried on our servers. Cropping on-device is what
-  keeps account numbers out of the server-readable path.
+- **Local-first** — the device is the system of record. Local SQLite ledger, no
+  server, no accounts. Nothing leaves the device in readable form.
+- **Mobile** — React Native + Expo (iOS + Android), built first
+- **Web** — Vite + React SPA; hydrates from backup files (SQLite WASM + OPFS)
+- **Backups** — encrypted single-file archives; Google Drive appDataFolder
+  connector; recovery key minted at backup setup
+- **Extraction** — on-device: Vision/ML Kit OCR, whisper.cpp, OS-provided LLMs,
+  with per-capture opt-in cloud assist (text only, never pixels)
 
 ## Read next
 
 | Doc | What it settles |
 |---|---|
+| [docs/adr/0011-local-first.md](docs/adr/0011-local-first.md) | The architecture — read first |
+| [docs/implementation-plan.md](docs/implementation-plan.md) | Phases, tasks, budgets, milestone process |
 | [CONTEXT.md](CONTEXT.md) | Domain vocabulary — read before writing code |
 | [docs/crypto-design.md](docs/crypto-design.md) | Key hierarchy, recovery, what leaks |
 | [docs/extraction.md](docs/extraction.md) | How photos/PDFs/audio become transactions |
-| [docs/api.md](docs/api.md) | REST surface |
-| [docs/data-model.md](docs/data-model.md) | Postgres schema and what is plaintext |
-| [docs/adr/](docs/adr/) | Why each choice, and what we gave up. 0001 and 0002 are superseded but kept — they record the full-E2EE design and why it was traded away. |
+| [docs/data-model.md](docs/data-model.md) | Schema |
+| [docs/adr/](docs/adr/) | Why each choice, and what we gave up. Superseded ADRs are kept — they record designs and why each was traded away. |

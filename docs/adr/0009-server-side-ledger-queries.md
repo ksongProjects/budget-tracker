@@ -1,6 +1,6 @@
 # ADR 0009 — Server-side ledger queries
 
-**Status**: accepted · 2026-08-28
+**Status**: superseded by [ADR 0011](0011-local-first.md) · 2026-08-29
 
 ## Context
 

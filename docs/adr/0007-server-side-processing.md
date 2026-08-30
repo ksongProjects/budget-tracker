@@ -1,6 +1,6 @@
 # ADR 0007 — Extraction engine is a server-side microservice
 
-**Status**: accepted · 2026-08-28 · supersedes [ADR 0002](0002-client-side-extraction.md)
+**Status**: superseded by [ADR 0011](0011-local-first.md) · 2026-08-29 · supersedes [ADR 0002](0002-client-side-extraction.md)
 
 ## Context
 
