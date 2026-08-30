@@ -8,3 +8,6 @@
 export * from './types.js';
 export * from './receipt.js';
 export * from './redact.js';
+export * from './statement/csv.js';
+export * from './statement/rows.js';
+export * from './statement/dedupe.js';
