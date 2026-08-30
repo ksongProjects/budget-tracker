@@ -20,7 +20,7 @@ The app-level wiring (recovery-key ceremony, scheduled backups, export) is not.
 
 ## Test evidence
 
-`pnpm check` green: **319 tests**, up from 253.
+`pnpm check` green: **328 tests**, up from 253.
 
 **Crypto (23 tests).** HKDF-SHA256 is checked against all three RFC 5869 test
 vectors and HMAC against RFC 4231 — expected values come from the standards, not
@@ -85,7 +85,7 @@ worse than no spec, because the next reader trusts it.
 the bytes, with its password and recovery key. `compatibility.test.ts` proves
 every future build can still open it.
 
-**It must never be regenerated.** A user's backups are the only copy of their
+**It must never be regenerated once the format ships.** A user's backups are the only copy of their
 data; a format change that quietly stops reading them is the worst bug this
 project can ship, and nothing else in the suite would notice. The fixture also
 pins `KDF_PARAMS`, so changing the Argon2id cost fails the test — which is
@@ -97,19 +97,43 @@ correct, because that change would orphan every existing user backup.
   device. The archive code has never met a real `VACUUM INTO` snapshot or a real
   photo, and merge has never met a real archive. This is the same gap that hid
   two bugs in Phase 3, and it is the first thing to close.
-- **react-native-libsodium has never run.** `CRYPTO_VECTORS` exists to check it
-  and has only ever run against libsodium-wrappers. Until it runs on a device,
-  "the mobile crypto matches" is an assumption — and if it is wrong, archives
-  written on a phone may be unopenable.
 - **Argon2id cost is unmeasured on a phone.** 64 MiB and t=3 is a deliberate
   cost, but if it takes ten seconds on a mid-range Android the enable-backup
   flow needs to say so rather than appear frozen.
 - **No key material is stored yet.** The BMK has nowhere to live between
   sessions; that belongs with the recovery-key ceremony in 4.2.
 
+## Addendum — the vectors ran on a device, and found three bugs
+
+Before building anything on top of crypto that had never executed on a phone,
+`CRYPTO_VECTORS` was wired into the diagnostics screen and run against native
+libsodium. It found three problems, none of which CI could have caught:
+
+1. **react-native-libsodium does not expose `crypto_hash_sha256`** — only
+   BLAKE2b. Found by reading its API before writing the backend. Deriving keys
+   differently per platform would have made phone-written backups unopenable on
+   the web, so HKDF now uses a TypeScript SHA-256 that is identical everywhere,
+   checked against the FIPS 180-4 examples and the 55/56/64-byte padding
+   boundaries. `SodiumBackend` no longer needs a hash at all.
+2. **AEAD associated data must be a string on device.** Four vectors failed with
+   "input type not yet implemented". Frame associated data is now an ASCII
+   string, identical under both libraries' UTF-8 encoding.
+3. **Two Windows build defects**: the library's Gradle passes a backslashed path
+   into CMake (which reads `C:` as an escape), fixed with a committed pnpm
+   patch; and its postinstall — which extracts the prebuilt libsodium binaries —
+   was blocked by pnpm 10, the same gotcha already recorded for esbuild.
+
+Fixing (2) changed the archive format, so the frozen v1 fixture was regenerated.
+That is the one time it is permissible and it is recorded in the fixture's own
+header: nothing has shipped, and the old byte-packed associated data could never
+have been produced on a phone, so no archive in that shape has ever existed
+outside this repository.
+
+**All 11 vectors now pass against native libsodium on the device.** The mobile
+and CI crypto provably agree.
+
 ## Next
 
 Wire it into the app: the recovery-key ceremony (4.2), a real snapshot-and-store
-backup, restore-and-merge, then scheduled backups (4.5) and export (4.6). Begin
-by running `CRYPTO_VECTORS` on a device through the diagnostics screen, before
-building anything on top of crypto that has never executed there.
+backup, restore-and-merge, then scheduled backups (4.5) and export (4.6). The
+crypto underneath is now verified on the hardware that will run it.
