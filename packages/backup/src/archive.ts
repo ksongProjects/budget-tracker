@@ -67,6 +67,8 @@ export interface WriteResult {
   readonly salt: Uint8Array;
   /** The recovery wrap used, so it can be stored and reused by later backups. */
   readonly recoveryWrap: WrappedKey;
+  /** The password wrap used, for the same reason: a backup with nobody present. */
+  readonly passwordWrap: WrappedKey;
 }
 
 const encoder = new TextEncoder();
@@ -85,14 +87,19 @@ function chunk(bytes: Uint8Array, limit: number): Uint8Array[] {
 /**
  * Write an archive.
  *
- * `kek` and `recoveryKey` both wrap the BMK, so the result opens with either.
- * The archive key is fresh per archive: reusing one across backups would mean a
- * single compromised key opens every backup ever taken.
+ * The password KEK and the recovery key both wrap the BMK, so the result opens
+ * with either. The archive key is fresh per archive: reusing one across backups
+ * would mean a single compromised key opens every backup ever taken.
+ *
+ * Either side may be given as the secret itself or as a wrap kept from the
+ * moment it was known. A wrap is ciphertext — useless without the secret that
+ * made it — which is what lets a backup run with nobody present to type a
+ * password or read a recovery key off paper.
  */
 export function writeArchive(
   sodium: SodiumBackend,
   entries: readonly ArchiveEntry[],
-  kek: Uint8Array,
+  kek: Uint8Array | WrappedKey,
   recovery: Uint8Array | WrappedKey,
   salt: Uint8Array,
   options: WriteOptions,
@@ -102,12 +109,11 @@ export function writeArchive(
   const archiveKey = sodium.randomBytes(SIZES.aeadKey);
   const noncePrefix = sodium.randomBytes(NONCE_PREFIX_BYTES);
 
-  // The recovery side may be given as the key itself (at setup, when the user
-  // has just been shown it) or as a wrap stored from that moment. The key is
-  // never stored; its wrap is ciphertext and useless without it, which is what
-  // lets later backups still carry a recovery path.
+  // Neither secret is ever stored; the wraps are, and they are ciphertext. That
+  // is what lets a later backup still carry both paths without the recovery key
+  // living on the device or the password being retyped.
   const wraps: BmkWraps = {
-    byPassword: wrapKey(sodium, kek, bmk),
+    byPassword: kek instanceof Uint8Array ? wrapKey(sodium, kek, bmk) : kek,
     byRecoveryKey:
       recovery instanceof Uint8Array ? wrapKey(sodium, recovery, bmk) : recovery,
   };
@@ -173,7 +179,13 @@ export function writeArchive(
     offset += frame.ciphertext.length;
   }
 
-  return { bytes: out, bmk, salt, recoveryWrap: wraps.byRecoveryKey };
+  return {
+    bytes: out,
+    bmk,
+    salt,
+    recoveryWrap: wraps.byRecoveryKey,
+    passwordWrap: wraps.byPassword,
+  };
 }
 
 export interface ReadResult {
