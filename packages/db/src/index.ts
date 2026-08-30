@@ -17,3 +17,4 @@ export * from './tombstones.js';
 export * from './merchants.js';
 export type { Migration } from './migrations.js';
 export { MIGRATIONS } from './migrations.js';
+export * from './merge.js';
