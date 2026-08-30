@@ -20,7 +20,7 @@ import { loadDeviceId } from './device-id';
  * an error state.
  */
 
-export interface Ledger {
+export interface Ledger extends RepositoryContext {
   readonly transactions: TransactionRepository;
   readonly categories: CategoryRepository;
   readonly accounts: AccountRepository;
@@ -77,8 +77,7 @@ export function LedgerProvider({ children }: { children: ReactNode }): ReactNode
         setState({
           status: 'ready',
           ledger: {
-            driver,
-            deviceId,
+            ...ctx,
             transactions: new TransactionRepository(ctx),
             categories: new CategoryRepository(ctx),
             accounts: new AccountRepository(ctx),

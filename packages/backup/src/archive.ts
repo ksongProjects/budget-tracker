@@ -1,6 +1,6 @@
 import type { SodiumBackend } from '@budget/crypto';
-import { SIZES, generateBmk, generateSalt, unwrapBmk, unwrapKey, wrapBmk, wrapKey } from '@budget/crypto';
-import type { BmkWraps, KdfParams } from '@budget/crypto';
+import { SIZES, generateBmk, generateSalt, unwrapBmk, unwrapKey, wrapKey } from '@budget/crypto';
+import type { BmkWraps, KdfParams, WrappedKey } from '@budget/crypto';
 import {
   ArchiveError,
   ArchiveVersionError,
@@ -65,6 +65,8 @@ export interface WriteResult {
   readonly bytes: Uint8Array;
   readonly bmk: Uint8Array;
   readonly salt: Uint8Array;
+  /** The recovery wrap used, so it can be stored and reused by later backups. */
+  readonly recoveryWrap: WrappedKey;
 }
 
 const encoder = new TextEncoder();
@@ -91,7 +93,7 @@ export function writeArchive(
   sodium: SodiumBackend,
   entries: readonly ArchiveEntry[],
   kek: Uint8Array,
-  recoveryKey: Uint8Array,
+  recovery: Uint8Array | WrappedKey,
   salt: Uint8Array,
   options: WriteOptions,
 ): WriteResult {
@@ -100,7 +102,15 @@ export function writeArchive(
   const archiveKey = sodium.randomBytes(SIZES.aeadKey);
   const noncePrefix = sodium.randomBytes(NONCE_PREFIX_BYTES);
 
-  const wraps: BmkWraps = wrapBmk(sodium, bmk, kek, recoveryKey);
+  // The recovery side may be given as the key itself (at setup, when the user
+  // has just been shown it) or as a wrap stored from that moment. The key is
+  // never stored; its wrap is ciphertext and useless without it, which is what
+  // lets later backups still carry a recovery path.
+  const wraps: BmkWraps = {
+    byPassword: wrapKey(sodium, kek, bmk),
+    byRecoveryKey:
+      recovery instanceof Uint8Array ? wrapKey(sodium, recovery, bmk) : recovery,
+  };
   const akWrap = wrapKey(sodium, bmk, archiveKey);
 
   const manifest: Manifest = {
@@ -163,7 +173,7 @@ export function writeArchive(
     offset += frame.ciphertext.length;
   }
 
-  return { bytes: out, bmk, salt };
+  return { bytes: out, bmk, salt, recoveryWrap: wraps.byRecoveryKey };
 }
 
 export interface ReadResult {

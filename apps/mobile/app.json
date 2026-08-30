@@ -33,7 +33,9 @@
       "expo-router",
       "expo-sqlite",
       "expo-asset",
-      "react-native-libsodium"
+      "react-native-libsodium",
+      "expo-secure-store",
+      "expo-sharing"
     ]
   }
 }
