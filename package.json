@@ -11,7 +11,7 @@
     "typecheck": "tsc --build && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "pnpm lint && pnpm typecheck && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

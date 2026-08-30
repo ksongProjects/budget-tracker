@@ -20,11 +20,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
-
+      # Typecheck first: it builds the packages' declaration files, which
+      # type-aware linting needs in order to resolve cross-package imports.
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
 
       - name: Test
         run: pnpm test
