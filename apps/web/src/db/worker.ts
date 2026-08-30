@@ -27,6 +27,9 @@ interface SahPool {
   wipeFiles(): Promise<void>;
   getCapacity(): number;
   addCapacity(n: number): Promise<number>;
+  importDb(path: string, bytes: Uint8Array): number;
+  exportFile(path: string): Uint8Array;
+  unlink(path: string): boolean;
 }
 
 interface Sqlite3Api {
@@ -117,6 +120,19 @@ function configure(): void {
   required().exec({ sql: 'PRAGMA foreign_keys = ON' });
 }
 
+/**
+ * The pool, or a refusal that says why.
+ *
+ * Importing a backup writes a database file directly, which the in-memory
+ * fallback cannot do. Saying so beats a confusing failure three steps later.
+ */
+function requirePool(what: string): SahPool {
+  if (pool === undefined) {
+    throw new Error(`${what} needs durable storage, which this browser did not allow`);
+  }
+  return pool;
+}
+
 function required(): Sqlite3Db {
   if (db === undefined) throw new Error('the database is not open');
   return db;
@@ -142,6 +158,19 @@ async function handle(command: WorkerRequest['command']): Promise<unknown> {
       db = undefined;
       await pool?.wipeFiles();
       return undefined;
+    case 'stage': {
+      // A restore puts the archive's snapshot into the pool as a database file
+      // and reads it with the same connection. There is no second connection
+      // to be had: the pool holds its handles exclusively.
+      const pool = requirePool('staging a backup');
+      pool.importDb(`/${command.name}`, command.bytes);
+      return undefined;
+    }
+    case 'unstage':
+      requirePool('removing a staged backup').unlink(`/${command.name}`);
+      return undefined;
+    case 'export':
+      return requirePool('exporting the ledger').exportFile(`/${command.name}`);
     case 'exec':
       required().exec({ sql: command.sql });
       return undefined;

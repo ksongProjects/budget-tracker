@@ -24,6 +24,12 @@ export interface WebDriver extends SqliteDriver {
    * OPFS pool would refuse anyway — it holds its access handles exclusively.
    */
   reopen(name: string): Promise<void>;
+  /** Put a database file into storage under `name`, for a restore to read. */
+  stage(name: string, bytes: Uint8Array): Promise<void>;
+  /** Remove a staged file. It is plaintext, so this is not optional. */
+  unstage(name: string): Promise<void>;
+  /** The raw bytes of a database file, for writing a backup. */
+  export(name: string): Promise<Uint8Array>;
   /** Delete every file in the pool. Tests only; there is no undo. */
   wipe(): Promise<void>;
 }
@@ -84,6 +90,18 @@ export async function createWebDriver(options: WebDriverOptions): Promise<WebDri
 
     async reopen(name: string) {
       opened = await send<OpenResult>({ kind: 'open', name });
+    },
+
+    async stage(name: string, bytes: Uint8Array) {
+      await send<undefined>({ kind: 'stage', name, bytes });
+    },
+
+    async unstage(name: string) {
+      await send<undefined>({ kind: 'unstage', name });
+    },
+
+    async export(name: string) {
+      return send<Uint8Array>({ kind: 'export', name });
     },
 
     async wipe() {

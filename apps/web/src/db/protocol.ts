@@ -17,6 +17,9 @@ import type { SqlParams, SqlValue } from '@budget/db';
 export type WorkerCommand =
   | { readonly kind: 'open'; readonly name: string }
   | { readonly kind: 'wipe' }
+  | { readonly kind: 'stage'; readonly name: string; readonly bytes: Uint8Array }
+  | { readonly kind: 'unstage'; readonly name: string }
+  | { readonly kind: 'export'; readonly name: string }
   | { readonly kind: 'exec'; readonly sql: string }
   | { readonly kind: 'run'; readonly sql: string; readonly params: SqlParams }
   | { readonly kind: 'all'; readonly sql: string; readonly params: SqlParams }
