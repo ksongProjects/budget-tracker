@@ -46,6 +46,33 @@ identity. Not: contents, document names, merchants, amounts. Backup cadence bein
 observable is accepted metadata leakage, consistent with the (superseded but still
 honest) reasoning of ADR 0010 — we say it rather than pad it.
 
+## Setting one up
+
+Nothing in the repository carries a Google identity, and the app is fully usable
+without one — the connector simply reports itself unconfigured and backups stay
+local. To turn it on for a build:
+
+1. A Google Cloud project with the **Drive API** enabled.
+2. An OAuth consent screen requesting **only**
+   `https://www.googleapis.com/auth/drive.appdata`. That is a *sensitive* scope:
+   publishing requires Google's app verification (name, logo, privacy policy,
+   homepage, demo video). The broader `drive` scope is *restricted* and adds an
+   annual third-party security assessment — avoiding that is much of why this
+   design uses appdata.
+3. An **Android OAuth client id**: package `com.ksongprojects.budgettracker` plus
+   the SHA-1 of the signing certificate. Register both the debug certificate and
+   the Play upload certificate, or the flow works in development and fails in
+   release. iOS and web clients are separate ids, added when those ship.
+4. No client secret. The flow is authorization-code with PKCE for a public
+   client, because a secret shipped inside an app is not a secret.
+5. Give the build the id, either as `EXPO_PUBLIC_GOOGLE_CLIENT_ID` or as
+   `expo.extra.googleClientId` in `app.json`, and add the reverse-DNS redirect
+   scheme `com.googleusercontent.apps.<id>` to `expo.scheme`.
+
+While the consent screen is unverified, Google caps testers at around 100 and
+expires refresh tokens after about a week. Fine for development; not something
+to ship on.
+
 ## Later connectors
 
 Dropbox and WebDAV fit the same interface: upload/list/prune/download over opaque

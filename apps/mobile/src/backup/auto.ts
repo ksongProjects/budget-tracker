@@ -10,6 +10,7 @@ import { hasKeyMaterial } from './keys';
 import { createBackup, lastBackupAt, recordScheduledRun } from './service';
 import { runScheduledBackup } from './schedule';
 import type { AutoBackupOptions, AutoBackupReport } from './schedule';
+import { uploadNewestBackup } from '../cloud/sync';
 
 /**
  * Backups that happen without being asked for.
@@ -37,9 +38,9 @@ const SCHEDULE_MINUTES = 12 * 60;
 /** Write a backup if one is due. See `runScheduledBackup` for the rules. */
 export async function maybeBackup(
   ctx: RepositoryContext,
-  options: AutoBackupOptions = {},
+  options: AutoBackupOptions & { readonly upload?: boolean } = {},
 ): Promise<AutoBackupReport> {
-  return runScheduledBackup(
+  const report = await runScheduledBackup(
     ctx,
     {
       isSetUp: hasKeyMaterial,
@@ -49,6 +50,21 @@ export async function maybeBackup(
     },
     { ...options, minIntervalMs: options.minIntervalMs ?? MIN_INTERVAL_MS },
   );
+
+  // A new archive is worth sending, and only a new one: the cloud copy exists
+  // to survive the loss of this device, not to mirror its history.
+  if (report.outcome === 'written' && options.upload !== false) {
+    try {
+      await uploadNewestBackup();
+    } catch (cause) {
+      // The local archive is written and safe, and the failure is already
+      // recorded for the backup screen to show. Failing the whole backup over
+      // a dead network would be the wrong trade.
+      console.warn('backup upload failed', cause);
+    }
+  }
+
+  return report;
 }
 
 /**

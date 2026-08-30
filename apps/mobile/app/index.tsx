@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -9,6 +9,11 @@ import { useQuery } from '../src/db/provider';
 import { groupByDay, monthLabel } from '../src/lib/grouping';
 import type { DaySection } from '../src/lib/grouping';
 import { markInteractive } from '../src/lib/perf';
+import { backupHealth } from '../src/backup/health';
+import type { BackupVerdict } from '../src/backup/health';
+import { hasKeyMaterial } from '../src/backup/keys';
+import { lastBackupAt } from '../src/backup/service';
+import { cloudStatus } from '../src/cloud/sync';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
 const PAGE_SIZE = 50;
@@ -38,6 +43,8 @@ export default function LedgerScreen(): ReactNode {
     version,
   );
 
+  const backup = useBackupVerdict(version);
+
   const rows = useMemo(() => toRows(data ?? []), [data]);
 
   // The app is usable the first time this screen has data to show.
@@ -65,6 +72,7 @@ export default function LedgerScreen(): ReactNode {
 
   return (
     <View style={styles.screen}>
+      <BackupNudge verdict={backup} />
       <FlashList
         data={rows}
         keyExtractor={(row) => row.key}
@@ -180,7 +188,78 @@ function Centered({ message }: { message: string }): ReactNode {
   );
 }
 
+/**
+ * The backup nudge.
+ *
+ * Shown on the screen the user actually lives on, because a warning behind a
+ * settings menu is one nobody sees. It links to the place that fixes it, and it
+ * stays quiet when there is nothing to fix — a badge that is always on is a
+ * badge nobody reads.
+ */
+function BackupNudge({ verdict }: { verdict: BackupVerdict | undefined }): ReactNode {
+  if (verdict === undefined || verdict.health === 'ok') return null;
+
+  return (
+    <Link href="/backup" asChild>
+      <Pressable
+        style={[styles.nudge, verdict.health === 'urgent' ? styles.nudgeUrgent : styles.nudgeWarn]}
+      >
+        <Text style={styles.nudgeText}>{verdict.message}</Text>
+        <Text style={styles.nudgeAction}>Fix</Text>
+      </Pressable>
+    </Link>
+  );
+}
+
+function useBackupVerdict(version: number): BackupVerdict | undefined {
+  const [verdict, setVerdict] = useState<BackupVerdict | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const check = async (): Promise<void> => {
+      const [isSetUp, at, cloud] = await Promise.all([
+        hasKeyMaterial(),
+        lastBackupAt(),
+        cloudStatus(),
+      ]);
+
+      if (cancelled) return;
+      setVerdict(
+        backupHealth({
+          isSetUp,
+          ...(at === undefined ? {} : { lastBackupAt: at }),
+          cloudConfigured: cloud.configured,
+          cloudSignedIn: cloud.signedIn,
+          ...(cloud.lastUploadAt === undefined ? {} : { lastUploadAt: cloud.lastUploadAt }),
+          ...(cloud.lastError === undefined ? {} : { lastError: cloud.lastError }),
+        }),
+      );
+    };
+
+    void check();
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  return verdict;
+}
+
 const styles = StyleSheet.create({
+  nudge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+  },
+  nudgeWarn: { backgroundColor: colors.surface, borderBottomColor: colors.pending },
+  nudgeUrgent: { backgroundColor: colors.surfaceRaised, borderBottomColor: colors.danger },
+  nudgeText: { color: colors.text, flexShrink: 1, fontSize: 14 },
+  nudgeAction: { color: colors.accent, fontWeight: '600' },
   screen: { flex: 1, backgroundColor: colors.background },
   listContent: { paddingBottom: spacing.xl * 3 },
   empty: {
