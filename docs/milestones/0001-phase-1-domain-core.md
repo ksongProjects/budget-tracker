@@ -95,7 +95,25 @@ No findings against `packages/schema`.
 - **`node:sqlite` is still flagged experimental** and prints a warning on every
   run. It is a test-time dependency only — mobile uses expo-sqlite, web uses
   WASM — so the blast radius is CI, but a Node change could break the suite.
-- **CI remains unverified.** No remote yet, so the workflow has never run.
+
+## Remote and CI
+
+The repository was pushed to `ksongProjects/budget-tracker` (private) at the
+close of this phase, and `master` was renamed to `main` to match the default.
+
+CI's first real run **failed**, which retired the "CI is unverified" risk by
+finding a genuine bug. Type-aware ESLint resolves cross-package imports through
+each package's declaration output, and on a fresh clone that output does not
+exist until the build runs. Linting first had passed locally only because `dist`
+was left over from earlier builds — a clean checkout could never have passed.
+Fixed in `ci: typecheck before lint`, which reorders both the workflow and the
+`check` script; verified by clearing `dist` and the build info locally before
+re-running. Second run green: typecheck, lint, and 112 tests.
+
+Also bumped the actions off Node 20, which the runner had begun warning about.
+
+The lesson worth carrying: local green said nothing about clean-clone green, and
+nothing would have caught it except running CI.
 
 ## Next
 

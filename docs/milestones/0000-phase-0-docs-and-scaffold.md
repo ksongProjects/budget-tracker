@@ -33,8 +33,12 @@ workspace build and test run. They exist to prove the toolchain, not the domain 
 real coverage starts in Phase 1.
 
 CI (`.github/workflows/ci.yml`) runs the same three steps on push and PR with
-`--frozen-lockfile`. Not yet observed green on a real runner: there is no remote,
-so the workflow is unexercised. First push validates it.
+`--frozen-lockfile`.
+
+**Update (Phase 1 close):** the workflow was exercised for the first time when
+the repository was pushed to `ksongProjects/budget-tracker`, and it failed —
+see the Phase 1 report. The risk this report recorded as "CI is unverified" was
+a real one.
 
 ## Performance
 
