@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Currency, MinorUnits } from '@budget/schema';
-import { toCsv, toReportHtml, totalsByCategory, totalsByCurrency, totalsByMonth } from './format';
-import type { ExportRow } from './format';
+import { toCsv, toReportHtml, totalsByCategory, totalsByCurrency, totalsByMonth } from './format.js';
+import type { ExportRow } from './format.js';
 
 const usd = 'USD' as Currency;
 const jpy = 'JPY' as Currency;

@@ -52,6 +52,9 @@ importers:
       '@budget/extract':
         specifier: workspace:*
         version: link:../../packages/extract
+      '@budget/report':
+        specifier: workspace:*
+        version: link:../../packages/report
       '@budget/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -164,6 +167,9 @@ importers:
       '@budget/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@budget/report':
+        specifier: workspace:*
+        version: link:../../packages/report
       '@budget/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -216,6 +222,12 @@ importers:
         version: link:../schema
 
   packages/extract:
+    dependencies:
+      '@budget/schema':
+        specifier: workspace:*
+        version: link:../schema
+
+  packages/report:
     dependencies:
       '@budget/schema':
         specifier: workspace:*

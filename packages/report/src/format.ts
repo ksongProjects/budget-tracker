@@ -1,6 +1,6 @@
 import { formatAmount, sumAmounts } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
-import { localDayKey, localMonthKey, monthLabel } from '../lib/grouping';
+import { localDayKey, localMonthKey, monthLabel } from './dates.js';
 
 /**
  * Turning the ledger into files for other people's software.

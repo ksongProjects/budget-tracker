@@ -13,6 +13,7 @@
     "@budget/backup": "workspace:*",
     "@budget/crypto": "workspace:*",
     "@budget/db": "workspace:*",
+    "@budget/report": "workspace:*",
     "@budget/schema": "workspace:*",
     "@sqlite.org/sqlite-wasm": "^3.50.1-build1"
   },

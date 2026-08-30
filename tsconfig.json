@@ -5,6 +5,7 @@
     { "path": "packages/db" },
     { "path": "packages/crypto" },
     { "path": "packages/backup" },
-    { "path": "packages/extract" }
+    { "path": "packages/extract" },
+    { "path": "packages/report" }
   ]
 }

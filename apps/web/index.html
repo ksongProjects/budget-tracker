@@ -3,6 +3,24 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      Everything the page may load, stated as a rule rather than as a habit.
+
+      `default-src 'none'` means anything not listed below is refused, so a
+      dependency that grew a CDN fetch fails loudly here instead of quietly
+      sending a request from a page that holds someone's spending.
+
+      `wasm-unsafe-eval` is what SQLite compiled to WebAssembly needs; it allows
+      instantiating WASM and nothing else — it does not bring back `eval`.
+      `connect-src 'self'` because this app talks to no server of ours at all.
+      Inline styles are allowed for one reason: the printable report is a
+      self-contained document with its CSS inside it, and every value in it is
+      escaped by the same code that writes it.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    />
     <title>Budget</title>
   </head>
   <body>

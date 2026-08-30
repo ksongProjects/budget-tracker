@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:web": "pnpm --filter @budget/web test",
     "test:watch": "vitest",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:web"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:web && pnpm --filter @budget/web build && node tools/bundle-budget.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

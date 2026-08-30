@@ -39,3 +39,11 @@ jobs:
 
       - name: Test the web build in a browser
         run: pnpm test:web
+
+      # The bundle is a promise: no third-party code, and a size a phone can
+      # actually load. Both are checked against the built output, not intended.
+      - name: Build the web app
+        run: pnpm --filter @budget/web build
+
+      - name: Check the bundle budget
+        run: node tools/bundle-budget.mjs
