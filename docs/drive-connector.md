@@ -73,6 +73,20 @@ While the consent screen is unverified, Google caps testers at around 100 and
 expires refresh tokens after about a week. Fine for development; not something
 to ship on.
 
+## The web half
+
+Same connector, same `appDataFolder`, different platform pieces: the browser
+supplies `fetch` and holds tokens **in memory only** — not `localStorage`, not a
+cookie. A token in storage survives the tab and is readable by anything that can
+run script on the origin; signing in again after a reload is the right price for
+a key to someone's Drive. The PKCE verifier is the one exception, since it has
+to survive the redirect, and it is deleted the moment the code is exchanged.
+
+The browser **reads** from Drive and does not write. Writing needs a Backup
+Master Key that outlives a reload, and browser storage is a materially different
+threat model from a phone's OS keystore — that decision deserves its own design
+rather than being made in passing. The phone writes; the browser restores.
+
 ## Testing without an account
 
 `packages/backup/src/fake-drive.ts` implements the protocol in memory — sessions,

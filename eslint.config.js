@@ -19,7 +19,12 @@ export default [
         // Explicit list rather than projectService: package tsconfigs exclude
         // tests so they stay out of dist, and the service would not find the
         // root test config on its own.
-        project: ['./packages/*/tsconfig.json', './tsconfig.test.json', './apps/*/tsconfig.json'],
+        project: [
+          './packages/*/tsconfig.json',
+          './tsconfig.test.json',
+          './apps/*/tsconfig.json',
+          './apps/*/tsconfig.node.json',
+        ],
         tsconfigRootDir: import.meta.dirname,
       },
     },

@@ -89,6 +89,69 @@ describe('the ledger screen', () => {
   });
 });
 
+describe('editing a spend', () => {
+  async function openFirstRow(): Promise<void> {
+    await go('ledger');
+    root.querySelector<HTMLAnchorElement>('#ledger a.open')?.click();
+    await settle();
+  }
+
+  it('opens from the ledger', async () => {
+    await addSpend('4.50', 'coffee');
+    await openFirstRow();
+
+    expect(field('#edit-amount').value).toBe('4.50');
+    expect(field('#edit-note').value).toBe('coffee');
+  });
+
+  it('saves a corrected amount', async () => {
+    await addSpend('4.50', 'coffee');
+    await openFirstRow();
+
+    field('#edit-amount').value = '5.25';
+    field('#save').click();
+    await settle();
+
+    expect(text('#ledger')).toContain('5.25 USD');
+  });
+
+  it('refuses an amount it cannot read rather than storing a guess', async () => {
+    await addSpend('4.50', 'coffee');
+    await openFirstRow();
+
+    field('#edit-amount').value = 'about five';
+    field('#save').click();
+    await settle();
+
+    expect(text('#notice')).not.toBe('');
+    await go('ledger');
+    expect(text('#ledger')).toContain('4.50 USD');
+  });
+
+  it('removes a deleted row from the ledger', async () => {
+    await addSpend('4.50', 'coffee');
+    await openFirstRow();
+
+    field('#delete').click();
+    await settle();
+
+    expect(root.textContent).toContain('Nothing captured yet');
+  });
+
+  it('keeps a deleted row out of the totals', async () => {
+    await addSpend('4.50', 'coffee');
+    await addSpend('5.50', 'lunch');
+    await openFirstRow();
+
+    field('#delete').click();
+    await settle();
+    await go('summary');
+
+    // Whichever row was first, one of them is gone and the total is the other.
+    expect(text('#summary')).not.toContain('10.00 USD');
+  });
+});
+
 describe('the summary screen', () => {
   it('totals what has been confirmed', async () => {
     await addSpend('4.50', 'coffee');
@@ -115,6 +178,31 @@ describe('the export screen', () => {
 });
 
 describe('the backup screen', () => {
+  it('lists what is on Drive', async () => {
+    // The suite points the connector at the stand-in, so this exercises the
+    // screen against a real listing rather than a stubbed one.
+    const { createDriveConnector } = await import('./cloud/drive');
+    const { archiveName } = await import('@budget/backup');
+    await createDriveConnector().upload(archiveName('web0', Date.now()), new Uint8Array(64));
+
+    await go('backup');
+    field('#list-drive').click();
+    await settle();
+
+    expect(root.querySelectorAll('#drive-list li').length).toBeGreaterThan(0);
+  });
+
+  it('will not restore from Drive without a secret', async () => {
+    await go('backup');
+    field('#list-drive').click();
+    await settle();
+
+    root.querySelector<HTMLButtonElement>('#drive-list button')?.click();
+    await settle();
+
+    expect(text('#notice')).toContain('password');
+  });
+
   it('asks for a file rather than failing silently', async () => {
     await go('backup');
 

@@ -8,7 +8,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc --build && tsc -p tsconfig.test.json && pnpm --filter @budget/mobile exec tsc --noEmit && pnpm --filter @budget/web exec tsc --noEmit",
+    "typecheck": "tsc --build && tsc -p tsconfig.test.json && pnpm --filter @budget/mobile exec tsc --noEmit && pnpm --filter @budget/web typecheck",
     "test": "vitest run",
     "test:web": "pnpm --filter @budget/web test",
     "test:watch": "vitest",

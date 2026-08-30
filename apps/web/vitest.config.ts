@@ -32,8 +32,13 @@ export default defineConfig({
     // The WASM glue is served as-is; pre-bundling it breaks its own loader.
     exclude: ['@sqlite.org/sqlite-wasm'],
   },
+  define: {
+    // The connector under test is pointed at the stand-in, not at Google.
+    'import.meta.env.VITE_FAKE_DRIVE_URL': JSON.stringify('http://localhost:8788'),
+  },
   test: {
     include: ['src/**/*.test.ts'],
+    globalSetup: ['./test/fake-drive-server.ts'],
     browser: {
       enabled: true,
       provider: playwright(),

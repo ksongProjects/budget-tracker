@@ -31,6 +31,21 @@ const drive = new FakeDrive({ origin });
 let chunkCount = 0;
 
 const server = createServer((request, response) => {
+  // A browser reaching this from a test page is cross-origin. The stand-in is
+  // a development tool that holds nothing real, so it answers anyone — and it
+  // has to name the headers explicitly, because Content-Range and Location are
+  // not exposed to script by default.
+  response.setHeader('Access-Control-Allow-Origin', '*');
+  response.setHeader('Access-Control-Allow-Headers', '*');
+  response.setHeader('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  response.setHeader('Access-Control-Expose-Headers', 'Location,Range,Content-Range');
+
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+
   const chunks = [];
 
   request.on('data', (chunk) => chunks.push(chunk));
