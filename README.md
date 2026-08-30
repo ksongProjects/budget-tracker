@@ -6,10 +6,10 @@ have it land as structured, categorized transaction data.
 
 ## Status
 
-Design phase. No code yet. Architecture pivoted to **local-first** in
-[ADR 0011](docs/adr/0011-local-first.md); implementation runs per the
-[implementation plan](docs/implementation-plan.md). Docs below ADR level are being
-reconciled to the pivot in Phase 0 — where a doc contradicts ADR 0011, the ADR wins.
+Design phase. Architecture is **local-first**
+([ADR 0011](docs/adr/0011-local-first.md)); implementation runs per the
+[implementation plan](docs/implementation-plan.md). Phase 0 (docs reconciled to the
+pivot, monorepo scaffolded) is in progress.
 
 ## Shape
 
@@ -29,7 +29,9 @@ reconciled to the pivot in Phase 0 — where a doc contradicts ADR 0011, the ADR
 | [docs/adr/0011-local-first.md](docs/adr/0011-local-first.md) | The architecture — read first |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Phases, tasks, budgets, milestone process |
 | [CONTEXT.md](CONTEXT.md) | Domain vocabulary — read before writing code |
+| [docs/data-model.md](docs/data-model.md) | Local SQLite schema and the merge rules |
 | [docs/crypto-design.md](docs/crypto-design.md) | Key hierarchy, recovery, what leaks |
+| [docs/backup-format.md](docs/backup-format.md) | The archive format |
+| [docs/drive-connector.md](docs/drive-connector.md) | Google Drive transport |
 | [docs/extraction.md](docs/extraction.md) | How photos/PDFs/audio become transactions |
-| [docs/data-model.md](docs/data-model.md) | Schema |
 | [docs/adr/](docs/adr/) | Why each choice, and what we gave up. Superseded ADRs are kept — they record designs and why each was traded away. |
