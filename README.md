@@ -6,10 +6,16 @@ have it land as structured, categorized transaction data.
 
 ## Status
 
-Design phase. Architecture is **local-first**
-([ADR 0011](docs/adr/0011-local-first.md)); implementation runs per the
-[implementation plan](docs/implementation-plan.md). Phase 0 (docs reconciled to the
-pivot, monorepo scaffolded) is in progress.
+Architecture is **local-first** ([ADR 0011](docs/adr/0011-local-first.md));
+implementation runs per the [implementation plan](docs/implementation-plan.md).
+
+Phases 0–6 are done: the mobile app captures, stores and backs up; archives are
+encrypted, restorable and uploadable; the web app opens a phone's backup and
+reads, edits and exports the ledger. Phase 7 (bank statements) is in progress.
+Work knowingly left undone is listed in [docs/deferred.md](docs/deferred.md) —
+most notably that nothing has yet talked to Google or run on iOS.
+
+To run any of it, see [docs/running-locally.md](docs/running-locally.md).
 
 ## Shape
 
@@ -28,6 +34,8 @@ pivot, monorepo scaffolded) is in progress.
 |---|---|
 | [docs/adr/0011-local-first.md](docs/adr/0011-local-first.md) | The architecture — read first |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | Phases, tasks, budgets, milestone process |
+| [docs/running-locally.md](docs/running-locally.md) | Running the apps and the checks yourself |
+| [docs/deferred.md](docs/deferred.md) | Work left undone, why, and what unblocks it |
 | [CONTEXT.md](CONTEXT.md) | Domain vocabulary — read before writing code |
 | [docs/data-model.md](docs/data-model.md) | Local SQLite schema and the merge rules |
 | [docs/crypto-design.md](docs/crypto-design.md) | Key hierarchy, recovery, what leaks |
