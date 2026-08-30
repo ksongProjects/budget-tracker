@@ -19,7 +19,8 @@ with nothing else on hand. Keys per [crypto-design.md](crypto-design.md).
 
 ```
 [ magic "BTBK" | version u8 | header_len u32 ]
-[ header (plaintext, CBOR):
+[ header (plaintext, JSON — readable without any secret, so backups can be
+  listed by date without unlocking them):
     kdf: { alg: "argon2id", salt, m, t, p }
     bmk_wraps: [ { by: "password", nonce, ct }, { by: "recovery", nonce, ct } ]
     ak_wrap:   { nonce, ct }                    # AK wrapped by BMK
@@ -40,14 +41,21 @@ ciphertext = XChaCha20-Poly1305(
     body )
 ```
 
-The counter in the nonce **and** the AD binds each frame to its position; the final
-frame sets `final_flag` and carries the total frame count in its body, so
-truncation is detected even though the stream is consumed incrementally.
+The counter appears in the nonce **and** in the AD. In the nonce it guarantees
+no two frames of an archive share one; in the AD it binds each frame to its
+position, so a frame moved or spliced in from another archive fails to
+authenticate.
+
+Truncation is caught by `final_flag`: every frame but the last is sealed as
+non-final, so a reader that runs out of bytes early treats some earlier frame as
+final and authentication fails. The manifest's per-entry frame count and byte
+length catch it a second time. No separate frame-count field is needed, and
+earlier drafts of this doc that described one were never implemented.
 
 Frame bodies, in order:
 
-1. **Manifest** (CBOR): list of entries — `db` snapshot, then one entry per
-   Document (`capture_id`, kind, byte length, content hash).
+1. **Manifest** (JSON): list of entries — `db` snapshot, then one entry per
+   Document (`capture_id`, kind, byte length, content hash, frame count).
 2. **DB snapshot** — the `VACUUM INTO` output, chunked into ≤ 4 MiB frames.
 3. **Documents** — each chunked the same way, in manifest order.
 

@@ -133,8 +133,9 @@ export function writeArchive(
     sealFrame(sodium, archiveKey, noncePrefix, index, body, index === bodies.length - 1, frameLimit),
   );
 
-  // The final frame's body is the frame count, so a truncated archive cannot
-  // pass as a complete one.
+  // Truncation is caught by the final flag in each frame's associated data:
+  // every frame but the last is sealed as non-final, so a reader that runs out
+  // of bytes early treats some frame as final and it fails to authenticate.
   const totalLength =
     MAGIC.length +
     1 +
