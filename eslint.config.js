@@ -16,12 +16,19 @@ export default [
     files: ['packages/**/*.ts', 'apps/**/*.ts', 'apps/**/*.tsx'],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // Explicit list rather than projectService: package tsconfigs exclude
+        // tests so they stay out of dist, and the service would not find the
+        // root test config on its own.
+        project: ['./packages/*/tsconfig.json', './tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
       '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
       // Rounding money is never incidental; it belongs in the schema helpers
       // where the rule is stated once and tested.
       'no-restricted-syntax': [

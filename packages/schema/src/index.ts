@@ -1,5 +1,7 @@
 /**
- * @budget/schema — scaffold only. Filled in by later phases; see
- * docs/implementation-plan.md.
+ * @budget/schema — the domain vocabulary of CONTEXT.md as executable types.
+ * Shared by every client and by the database layer; see docs/data-model.md.
  */
-export const PACKAGE_NAME = '@budget/schema';
+export * from './money.js';
+export * from './ids.js';
+export * from './entities.js';
