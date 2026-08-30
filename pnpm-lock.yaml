@@ -34,7 +34,11 @@ importers:
 
   packages/crypto: {}
 
-  packages/db: {}
+  packages/db:
+    dependencies:
+      '@budget/schema':
+        specifier: workspace:*
+        version: link:../schema
 
   packages/extract: {}
 
