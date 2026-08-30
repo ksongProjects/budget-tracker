@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./libsodium": {
+      "types": "./dist/backends/libsodium.d.ts",
+      "default": "./dist/backends/libsodium.js"
     }
   },
   "scripts": {

@@ -13,5 +13,9 @@
   },
   "scripts": {
     "build": "tsc --build"
+  },
+  "dependencies": {
+    "@budget/crypto": "workspace:*",
+    "@budget/schema": "workspace:*"
   }
 }
