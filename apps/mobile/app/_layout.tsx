@@ -3,9 +3,9 @@
 // Keeping the polyfill here rather than in the package leaves the package
 // platform-agnostic — the app supplies what its runtime lacks.
 import 'react-native-get-random-values';
-import { Stack } from 'expo-router';
+import { Link, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { LedgerProvider, useLedgerState } from '../src/db/provider';
@@ -70,20 +70,46 @@ function LedgerGate(): ReactNode {
         contentStyle: { backgroundColor: colors.background },
       }}
     >
-      <Stack.Screen name="index" options={{ title: 'Ledger' }} />
+      <Stack.Screen
+        name="index"
+        options={{
+          title: 'Ledger',
+          // Backup and Export are otherwise unreachable without a deep link,
+          // and a backup nobody can find is a backup nobody sets up.
+          headerRight: () => (
+            <View style={styles.headerLinks}>
+              <HeaderLink href="/export" label="Export" />
+              <HeaderLink href="/backup" label="Backup" />
+            </View>
+          ),
+        }}
+      />
       <Stack.Screen name="add" options={{ title: 'New spend', presentation: 'modal' }} />
       <Stack.Screen name="summary" options={{ title: 'Summary' }} />
       <Stack.Screen name="transaction/[id]" options={{ title: 'Spend' }} />
       <Stack.Screen name="capture" options={{ title: 'Photograph receipt' }} />
       <Stack.Screen name="confirm/[captureId]" options={{ title: 'Check the details' }} />
       <Stack.Screen name="backup" options={{ title: 'Backup' }} />
+      <Stack.Screen name="export" options={{ title: 'Export' }} />
       <Stack.Screen name="diagnostics" options={{ title: 'Diagnostics' }} />
       <Stack.Screen name="perf" options={{ title: 'Benchmarks' }} />
     </Stack>
   );
 }
 
+function HeaderLink({ href, label }: { href: '/export' | '/backup'; label: string }): ReactNode {
+  return (
+    <Link href={href} asChild>
+      <Pressable hitSlop={8}>
+        <Text style={styles.headerLink}>{label}</Text>
+      </Pressable>
+    </Link>
+  );
+}
+
 const styles = StyleSheet.create({
+  headerLinks: { flexDirection: 'row', gap: spacing.md },
+  headerLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
   center: {
     flex: 1,
     alignItems: 'center',
