@@ -1,0 +1,15 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index 49282df744daa7ba04f3ae97d14731818a47e772..1d5065492ca6809c3a5fded8f5309bcfe7310fd3 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -66,7 +66,9 @@ android {
+         // correctly.
+         // see https://developer.android.com/ndk/guides/cpp-support#selecting_a_c_runtime
+         arguments "-DANDROID_STL=c++_shared",
+-                  "-DNODE_MODULES_DIR=${nodeModules}"
++                  // Windows paths use backslashes, which CMake reads as escape
++                  // sequences — a path like C:\\Users fails to parse.
++                  "-DNODE_MODULES_DIR=${nodeModules.replace('\\', '/')}"
+       }
+     }
+   }

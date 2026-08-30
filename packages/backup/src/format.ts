@@ -123,17 +123,14 @@ export function frameNonce(prefix: Uint8Array, counter: number): Uint8Array {
  * Includes the format version so an archive cannot be downgraded by rewriting
  * its version byte, and the final flag so the last frame cannot be passed off
  * as a middle one — which is how truncation would otherwise go unnoticed.
+ *
+ * A plain ASCII string rather than packed bytes: react-native-libsodium accepts
+ * only a string as associated data, and both libraries encode it as UTF-8, so
+ * this is the one representation that means the same thing on every platform.
+ * Packed bytes appeared to work until they were run on a device.
  */
-export function frameAssociatedData(counter: number, isFinal: boolean): Uint8Array {
-  const ad = new Uint8Array(MAGIC.length + 1 + 8 + 1);
-  ad.set(MAGIC, 0);
-  ad[MAGIC.length] = FORMAT_VERSION;
-
-  const view = new DataView(ad.buffer, ad.byteOffset + MAGIC.length + 1, 8);
-  view.setBigUint64(0, BigInt(counter), false);
-
-  ad[ad.length - 1] = isFinal ? 1 : 0;
-  return ad;
+export function frameAssociatedData(counter: number, isFinal: boolean): string {
+  return `BTBK/${String(FORMAT_VERSION)}/${String(counter)}/${isFinal ? 'final' : 'mid'}`;
 }
 
 export interface SealedFrame {

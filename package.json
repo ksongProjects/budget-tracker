@@ -15,10 +15,14 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "esbuild",
+      "react-native-libsodium"
     ],
     "overrides": {
       "react-native-worklets": "0.10.4"
+    },
+    "patchedDependencies": {
+      "react-native-libsodium@1.7.0": "patches/react-native-libsodium@1.7.0.patch"
     }
   },
   "devDependencies": {

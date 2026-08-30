@@ -6,14 +6,21 @@
  * their data, and a format change that quietly stops reading them is the worst
  * bug this project can ship.
  *
- * **Never delete or regenerate this.** When the format changes, add a new frozen
- * fixture beside it and keep this one passing.
+ * **Never regenerate this once the format has shipped.** When it changes, add a
+ * new frozen fixture beside this one and keep this one passing.
+ *
+ * Regenerated once, on 2026-08-30, before any release. Running the crypto
+ * vectors on a device showed that react-native-libsodium accepts only a string
+ * as AEAD associated data, so the original byte-packed associated data could
+ * never have been produced on a phone at all — no archive in that shape has
+ * ever existed outside this repository. That is the only reason regenerating
+ * was correct, and the reason it must not happen again.
  *
  * Written with the password and salt below and the real KDF_PARAMS, so a change
  * to those parameters fails this test too — which is the point.
  */
 export const V1_ARCHIVE_BASE64 =
-  'QlRCSwEAAAJ8eyJrZGYiOnsiYWxnb3JpdGhtIjoiYXJnb24yaWQiLCJvcHNMaW1pdCI6MywibWVtTGltaXRCeXRlcyI6NjcxMDg4NjQsInNhbHQiOiJLaW9xS2lvcUtpb3FLaW9xS2lvcUtnPT0ifSwiYm1rV3JhcHMiOnsiYnlQYXNzd29yZCI6eyJub25jZSI6IjR2aGdLMkZkWW9BOGFCWi9rVHNRWGt6Y21mQi9tU054IiwiY2lwaGVydGV4dCI6IjhCK3BWZU1qNzliemZTMXowK1k3YXRjaGxFOWY3czViYk1BdXpORGhRY1pBREw3YUhoa3pHbXV1UTVWQnk5c1EifSwiYnlSZWNvdmVyeUtleSI6eyJub25jZSI6Ikd1dGJjVU5pMEt3TXNPQko5SzVWcWpkWm1MdnF1M01UIiwiY2lwaGVydGV4dCI6IkF2bFVteVpGcEFsenFHZmtwMENEQXdjZVcxUnVXRnVKMWVkZXE3bE00RGo0cENkNStrTGRrMXRjazlYYjkxeGsifX0sImFrV3JhcCI6eyJub25jZSI6ImxtcEtBeVdQNVZ2dVhranBXTHR2aHE1SEJmZzF0U2FYIiwiY2lwaGVydGV4dCI6IkFSR2poM0xBZmJTR3F1T2I4MFJRdkIxMVVWaWpDci9lK1QzenppVUpYZmxhOGMyMDREVER5dHoyVkZjQlc2a0EifSwibm9uY2VQcmVmaXgiOiJkMUFIRGhkbzBJRGlHSjFoYVY1U1NRPT0iLCJjcmVhdGVkQXQiOjE3NzIwMDAwMDAwMDAsImFwcFZlcnNpb24iOiIwLjEuMCIsInNjaGVtYVZlcnNpb24iOjJ9AAAAosjAsqDdzLiWM2JTwhy9ws0/ATeiG1HoULSub/1XrkmY8XeecENzMKIIwdqVy6oTvW/XYu5uOcugZiGARR7156576/ZVDE/rNIzpAvq7/qnIwxDKUsZmMlAoKR+DcN5j/p9HMeuIxy3+3aLS9HrxMItNloqpVxIRpdyrJkeHZWyzSvrytRJ8vKiiPtl+lht2OdSyA8SjP5lPkac9C+ilF23zBgAAAC0a3b5OV+WipGssXrfSdv+LIbjFQXfqYTob2OYzNYsXse0s2GDShjT1MN0BNYMAAAAUx2cYRrK/X0SNYwJ59+B+iPpw2MQ=';
+  'QlRCSwEAAAJ8eyJrZGYiOnsiYWxnb3JpdGhtIjoiYXJnb24yaWQiLCJvcHNMaW1pdCI6MywibWVtTGltaXRCeXRlcyI6NjcxMDg4NjQsInNhbHQiOiJLaW9xS2lvcUtpb3FLaW9xS2lvcUtnPT0ifSwiYm1rV3JhcHMiOnsiYnlQYXNzd29yZCI6eyJub25jZSI6Ik5RWUYzNXIrbDlaWGphLytFRHNFUkc2azlqRXVwT2pFIiwiY2lwaGVydGV4dCI6IlMzM2RVS1R3NzJPdzRBM3ZUZk42aWJPU0pSMmgweUM0Q2k0aGp2dzlsRG5IYjlkbUdsZmtJcmtGcTd2NnkvQXMifSwiYnlSZWNvdmVyeUtleSI6eyJub25jZSI6Ildha3d3cWFCaHZLTjJmek45VVBuU3Y3VnlZb2JrVWF4IiwiY2lwaGVydGV4dCI6IkdXQnNUUVRvMnYwd3BjRlBpRXpBR0FVQk9OcE1ndVYwQnpXeFRvV1FqZVM2c2NHRkpIZkUzUnF6MGVid1l5OXYifX0sImFrV3JhcCI6eyJub25jZSI6IlQrWkt2b3BQUC92dDRuZzJ1d2RtTDIyeTNFWG51Z2k4IiwiY2lwaGVydGV4dCI6IkZ1T2ZMTmlJSENsd3pYKzA0Z2dFb2R0TnhpUU9WMmxOK3c0SUhpVE5HSzVnbzFnSjZUMlJEU1hSZmZJc20yc2sifSwibm9uY2VQcmVmaXgiOiJyYWZQak1wTU5iNEswN0NVUUdNWVdRPT0iLCJjcmVhdGVkQXQiOjE3NzIwMDAwMDAwMDAsImFwcFZlcnNpb24iOiIwLjEuMCIsInNjaGVtYVZlcnNpb24iOjJ9AAAAoizHbZY96SqbOxPwCSGRHT7dkX0vzMY4zlMdj+RQJZoDI/Kh/bfn1PG/+JaO0OhLzzJMLhfPGOv3ACcKbb5IC5Q2c3hV1WfAJX7XaGOhiv3CDHJOWReZscu/tIeyqU8S42E1/BhHK1KuHLYHvMGLZ+WsWXAP2vXSd2ZAOWeL7VhBCGdEGA46vsTxbxU5q15S6f5x+JOf+QVvS+0D6ITQgUIA0wAAAC2qmB4fftfz31lCK+CS7Oo+QB47/7k1TH3UOPUADKnmDyVjMrnmldFSPi/M8mIAAAAULRBH8KzPeGK2qZIYCkcLEutnvuk=';
 
 export const V1_PASSWORD = 'frozen-fixture-password';
 export const V1_SALT = new Uint8Array(16).fill(0x2a);

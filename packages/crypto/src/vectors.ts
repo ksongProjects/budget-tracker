@@ -129,7 +129,7 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
       const key = sodium.randomBytes(SIZES.aeadKey);
       const nonce = sodium.randomBytes(SIZES.aeadNonce);
       const plaintext = new TextEncoder().encode('the ledger');
-      const ad = new TextEncoder().encode('header');
+      const ad = 'header';
 
       const sealed = sodium.aeadEncrypt(key, nonce, plaintext, ad);
       assert(!equal(sealed, plaintext), 'ciphertext must not equal plaintext');
@@ -150,14 +150,14 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
         sodium.randomBytes(SIZES.aeadKey),
         nonce,
         new TextEncoder().encode('the ledger'),
-        new Uint8Array(0),
+        '',
       );
 
       const opened = sodium.aeadDecrypt(
         sodium.randomBytes(SIZES.aeadKey),
         nonce,
         sealed,
-        new Uint8Array(0),
+        '',
       );
       assert(opened === null, 'a wrong key must return null, not throw and not succeed');
     },
@@ -171,7 +171,7 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
         key,
         nonce,
         new TextEncoder().encode('10.60'),
-        new Uint8Array(0),
+        '',
       );
 
       // Flip one bit. An archive that opens after this is not tamper-evident.
@@ -179,7 +179,7 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
       tampered[0] = (tampered[0] ?? 0) ^ 0x01;
 
       assert(
-        sodium.aeadDecrypt(key, nonce, tampered, new Uint8Array(0)) === null,
+        sodium.aeadDecrypt(key, nonce, tampered, '') === null,
         'a flipped bit must fail authentication',
       );
     },
@@ -193,13 +193,13 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
         key,
         nonce,
         new TextEncoder().encode('frame 1'),
-        new TextEncoder().encode('position 1'),
+        'position 1',
       );
 
       // The archive format binds each frame to its position through the AD, so
       // reordering frames must fail.
       assert(
-        sodium.aeadDecrypt(key, nonce, sealed, new TextEncoder().encode('position 2')) === null,
+        sodium.aeadDecrypt(key, nonce, sealed, 'position 2') === null,
         'different associated data must fail authentication',
       );
     },

@@ -27,12 +27,19 @@ export interface SodiumBackend {
     outputLength: number,
   ): Uint8Array;
 
-  /** XChaCha20-Poly1305 AEAD. Returns ciphertext with the tag appended. */
+  /**
+   * XChaCha20-Poly1305 AEAD. Returns ciphertext with the tag appended.
+   *
+   * Associated data is a string, not bytes: react-native-libsodium accepts only
+   * a string there, and both libraries encode it as UTF-8, so a plain ASCII
+   * string is the one representation that means the same thing on every
+   * platform.
+   */
   aeadEncrypt(
     key: Uint8Array,
     nonce: Uint8Array,
     plaintext: Uint8Array,
-    associatedData: Uint8Array,
+    associatedData: string,
   ): Uint8Array;
 
   /** Returns null when authentication fails. Never throws for a bad tag. */
@@ -40,7 +47,7 @@ export interface SodiumBackend {
     key: Uint8Array,
     nonce: Uint8Array,
     ciphertext: Uint8Array,
-    associatedData: Uint8Array,
+    associatedData: string,
   ): Uint8Array | null;
 }
 

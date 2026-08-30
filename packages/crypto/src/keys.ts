@@ -100,7 +100,7 @@ export function wrapKey(
   sodium: SodiumBackend,
   wrappingKey: Uint8Array,
   key: Uint8Array,
-  associatedData: Uint8Array = new Uint8Array(0),
+  associatedData = '',
 ): WrappedKey {
   if (wrappingKey.length !== SIZES.aeadKey) {
     throw new CryptoError(`wrapping key must be ${String(SIZES.aeadKey)} bytes`);
@@ -115,7 +115,7 @@ export function unwrapKey(
   sodium: SodiumBackend,
   wrappingKey: Uint8Array,
   wrapped: WrappedKey,
-  associatedData: Uint8Array = new Uint8Array(0),
+  associatedData = '',
 ): Uint8Array | null {
   if (wrappingKey.length !== SIZES.aeadKey) return null;
   return sodium.aeadDecrypt(wrappingKey, wrapped.nonce, wrapped.ciphertext, associatedData);

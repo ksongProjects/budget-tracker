@@ -4,17 +4,20 @@ import type { SodiumBackend } from '@budget/crypto';
 /**
  * The sodium backend for React Native.
  *
- * `react-native-libsodium` mirrors the libsodium-wrappers API against native
- * libsodium, which is what Hermes needs — the WASM build CI uses cannot run
- * here.
+ * `react-native-libsodium` binds native libsodium, which is what Hermes needs —
+ * the WASM build CI uses cannot run here.
  *
- * It notably does **not** expose `crypto_hash_sha256`, which is why HKDF uses
- * the TypeScript SHA-256 in @budget/crypto rather than a backend primitive.
- * Deriving keys differently per platform would make a backup written on a phone
- * unopenable on the web, and nothing would notice until a user tried to
- * restore.
+ * Two differences from libsodium-wrappers, both found by running
+ * `CRYPTO_VECTORS` on a device rather than by reading the types:
  *
- * Held to `CRYPTO_VECTORS`, run from the diagnostics screen.
+ * - AEAD associated data must be a **string**. Passing bytes throws "input type
+ *   not yet implemented" at runtime. This is why the archive format's
+ *   associated data is an ASCII string.
+ * - `crypto_hash_sha256` is not exposed at all, only BLAKE2b. This is why HKDF
+ *   uses the TypeScript SHA-256 in @budget/crypto.
+ *
+ * The five-argument call below is correct: the JS wrapper accepts and ignores
+ * the secret-nonce parameter before calling the four-argument native function.
  */
 export async function createNativeSodiumBackend(): Promise<SodiumBackend> {
   await sodium.ready;
