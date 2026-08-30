@@ -201,8 +201,14 @@ function BackupNudge({ verdict }: { verdict: BackupVerdict | undefined }): React
 
   return (
     <Link href="/backup" asChild>
+      {/* Flattened, not an array: expo-router refuses to pass a style array
+          through `asChild`, and it refuses at render time on a screen the user
+          is looking at. */}
       <Pressable
-        style={[styles.nudge, verdict.health === 'urgent' ? styles.nudgeUrgent : styles.nudgeWarn]}
+        style={StyleSheet.flatten([
+          styles.nudge,
+          verdict.health === 'urgent' ? styles.nudgeUrgent : styles.nudgeWarn,
+        ])}
       >
         <Text style={styles.nudgeText}>{verdict.message}</Text>
         <Text style={styles.nudgeAction}>Fix</Text>
