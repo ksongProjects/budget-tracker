@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { DeviceId, Timestamp } from '@budget/schema';
+import { uuidv7 } from '@budget/schema';
+import type { DeviceId, MerchantId, Timestamp } from '@budget/schema';
 import { createNodeDriver } from './drivers/node.js';
 import type { SqliteDriver } from './driver.js';
 import { migrate } from './migrate.js';
 import type { RepositoryContext } from './context.js';
+import { tombstonesFor } from './tombstones.js';
 import {
   MerchantRepository,
   displayMerchantName,
@@ -37,6 +39,13 @@ describe('normalizeMerchantName', () => {
     expect(normalizeMerchantName('SAFEWAY 1234')).toBe('safeway');
     expect(normalizeMerchantName('SAFEWAY STORE 12')).toBe('safeway');
     expect(normalizeMerchantName('SAFEWAY 03/14')).toBe('safeway');
+  });
+
+  it('keeps a trailing word that is part of the name', () => {
+    // Stripping a bare "store" would merge these into 'apple' and 'corner'.
+    expect(normalizeMerchantName('APPLE STORE')).toBe('apple store');
+    expect(normalizeMerchantName('CORNER STORE')).toBe('corner store');
+    expect(normalizeMerchantName('APPLE STORE')).not.toBe(normalizeMerchantName('APPLE'));
   });
 
   it('keeps distinct merchants distinct', () => {
@@ -138,5 +147,58 @@ describe('MerchantRepository', () => {
 
   it('refuses a name that normalizes to nothing rather than creating a blank merchant', async () => {
     await expect(repo.resolve('###')).rejects.toThrow();
+  });
+
+  it('never leaves a merchant without its alias', async () => {
+    await repo.resolve('BLUE BOTTLE COFFEE');
+
+    const merchants = await driver.all<{ id: string }>('SELECT id FROM merchants');
+    const aliases = await driver.all<{ merchant_id: string }>('SELECT merchant_id FROM merchant_aliases');
+
+    // An orphaned merchant would be invisible to resolve, which would then
+    // create a duplicate on the next occurrence.
+    expect(aliases.map((a) => a.merchant_id).sort()).toEqual(merchants.map((m) => m.id).sort());
+  });
+
+  it('keeps the previous mapping when an alias is repointed', async () => {
+    const first = await repo.resolve('CORNER STORE');
+    const second = await repo.resolve('BODEGA');
+    await repo.addAlias('CORNER STORE', second);
+
+    const history = await tombstonesFor(ctx, 'merchant_aliases', 'corner store');
+    expect(history).toHaveLength(1);
+
+    const payload = JSON.parse(history[0]?.payload ?? '{}') as { merchant_id: string };
+    expect(payload.merchant_id).toBe(first);
+  });
+
+  it('keeps the previous name when a merchant is renamed', async () => {
+    const id = await repo.resolve('SQ *BLUE BOTTLE COFFEE');
+    await repo.rename(id, 'Blue Bottle');
+
+    const history = await tombstonesFor(ctx, 'merchants', id);
+    expect(history).toHaveLength(1);
+
+    const payload = JSON.parse(history[0]?.payload ?? '{}') as { canonical_name: string };
+    expect(payload.canonical_name).toBe('Blue Bottle Coffee');
+  });
+
+  it('bumps rev on rename so a later merge can order the change', async () => {
+    const id = await repo.resolve('BLUE BOTTLE COFFEE');
+    await repo.rename(id, 'Blue Bottle');
+
+    const row = await driver.get<{ rev: number }>('SELECT rev FROM merchants WHERE id = ?', [id]);
+    expect(row?.rev).toBe(2);
+  });
+
+  it('rejects renaming a merchant that does not exist', async () => {
+    await expect(repo.rename(uuidv7() as MerchantId, 'Nope')).rejects.toThrow();
+  });
+
+  it('adds a first-time alias without a spurious tombstone', async () => {
+    const id = await repo.resolve('BLUE BOTTLE COFFEE');
+    await repo.addAlias('BB CAFE', id);
+
+    expect(await tombstonesFor(ctx, 'merchant_aliases', 'bb cafe')).toHaveLength(0);
   });
 });
