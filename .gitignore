@@ -2,6 +2,9 @@ node_modules/
 dist/
 build/
 coverage/
+# Vitest browser-mode leftovers from a failing run
+.vitest-attachments/
+**/__screenshots__/
 *.tsbuildinfo
 
 # Expo

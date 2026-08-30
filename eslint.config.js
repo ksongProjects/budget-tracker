@@ -50,9 +50,9 @@ export default [
     },
   },
 
-  // Root config files sit outside every tsconfig; lint them without type info.
+  // Config files sit outside every tsconfig; lint them without type info.
   {
-    files: ['*.js', '*.ts'],
+    files: ['*.js', '*.ts', 'apps/*/vite.config.ts', 'apps/*/vitest.config.ts'],
     ...tseslint.configs.disableTypeChecked,
   },
 

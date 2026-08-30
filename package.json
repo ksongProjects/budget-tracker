@@ -8,10 +8,11 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "lint": "eslint .",
-    "typecheck": "tsc --build && tsc -p tsconfig.test.json && pnpm --filter @budget/mobile exec tsc --noEmit",
+    "typecheck": "tsc --build && tsc -p tsconfig.test.json && pnpm --filter @budget/mobile exec tsc --noEmit && pnpm --filter @budget/web exec tsc --noEmit",
     "test": "vitest run",
+    "test:web": "pnpm --filter @budget/web test",
     "test:watch": "vitest",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:web"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

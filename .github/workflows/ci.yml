@@ -30,3 +30,12 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # The web driver runs SQLite compiled to WASM over OPFS, and neither
+      # exists outside a real browser. Shimming it would make the suite green
+      # without checking the storage the ledger actually lives in.
+      - name: Install the test browser
+        run: pnpm --filter @budget/web exec playwright install --with-deps chromium
+
+      - name: Test the web build in a browser
+        run: pnpm test:web
