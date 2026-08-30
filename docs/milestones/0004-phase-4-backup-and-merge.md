@@ -11,7 +11,7 @@ The app-level wiring (recovery-key ceremony, scheduled backups, export) is not.
 | Task | Status | Evidence |
 |---|---|---|
 | 4.1 Key hierarchy + published test vectors | done | 23 tests, RFC 5869 and RFC 4231 vectors |
-| 4.2 Recovery key ceremony (generate, QR, verify-before-continue) | **not done** | key rendering built; the UI flow is not |
+| 4.2 Recovery key ceremony | done (no QR) | verified on device |
 | 4.3 Archive format v1 | done | 23 tests incl. tamper, truncation, splice |
 | 4.4 Merge on import | done | 17 tests incl. order-independence |
 | 4.5 Auto-backup + retention | **not done** | needs `expo-background-task` |
@@ -93,12 +93,13 @@ correct, because that change would orphan every existing user backup.
 
 ## Risks carried forward
 
-- **Nothing is wired into the app.** No backup has been written or restored on a
-  device. The archive code has never met a real `VACUUM INTO` snapshot or a real
-  photo, and merge has never met a real archive. This is the same gap that hid
-  two bugs in Phase 3, and it is the first thing to close.
-- **No key material is stored yet.** The BMK has nowhere to live between
-  sessions; that belongs with the recovery-key ceremony in 4.2.
+- **Restore is not yet verified end to end on a device.** Backup writing is
+  (2.87 MB, real ledger and photos). Restore is covered by 47 tests including
+  the frozen archive, and the merge batching below was validated by tests, but
+  the full restore path has not completed on hardware since that change.
+- **No automatic backups yet (4.5), and no export (4.6).** Every backup is
+  manual.
+- **The recovery key has no QR rendering**, only text and clipboard.
 
 ## Addendum — the vectors ran on a device, and found three bugs
 
@@ -138,6 +139,32 @@ tampered copy.
 
 **Argon2id at 64 MiB and t=3 takes 196 ms**, which retires the risk that the
 enable-backup flow would appear frozen. No warning UI is needed.
+
+## Addendum 2 — wired into the app, and what that found
+
+The backup service (VACUUM INTO snapshot, documents, archive) and the
+recovery-key ceremony were built and driven on the device. **A real 2.87 MB
+backup was written** from the seeded ledger.
+
+Three defects surfaced that only appear once real data flows through:
+
+1. **Restore of 10,000 rows did not finish in five minutes.** `mergeTable`
+   issued a SELECT per row, so every row crossed the native bridge twice. The
+   archive and merge tests never saw it because they run in-process with a
+   handful of rows. Existing rows are now loaded in chunks of 400 and compared
+   from a map, with tests for a batch carrying two revisions of one row.
+2. **A dynamic `import()` sat in the restore path**, adding an async boundary in
+   data-critical code and reaching back to Metro at runtime in a dev build. Now
+   static.
+3. **The backup screen did not reflect persisted state.** Reopening it offered
+   to set up backup again, which would have minted a second recovery key against
+   the same master key — leaving the user holding a key that opens nothing they
+   were told it would. `hasKeyMaterial` existed and was never called.
+
+A design point worth recording: the recovery key is never stored, but its
+**wrap** is. The wrap is ciphertext and useless without the key, and keeping it
+is what lets later backups carry a recovery path without the key being on the
+device.
 
 ## Next
 
