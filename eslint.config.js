@@ -19,12 +19,15 @@ export default [
         // Explicit list rather than projectService: package tsconfigs exclude
         // tests so they stay out of dist, and the service would not find the
         // root test config on its own.
-        project: ['./packages/*/tsconfig.json', './tsconfig.test.json'],
+        project: ['./packages/*/tsconfig.json', './tsconfig.test.json', './apps/*/tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
       '@typescript-eslint/consistent-type-imports': 'error',
+      // Numbers in templates are not the hazard this rule exists for, and
+      // React Native's dimension types are literally `${number}%`.
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true },
@@ -51,5 +54,20 @@ export default [
   {
     files: ['*.js', '*.ts'],
     ...tseslint.configs.disableTypeChecked,
+  },
+
+  // Build tooling that has to stay CommonJS (Metro reads it with require).
+  {
+    files: ['**/metro.config.js', '**/babel.config.js'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        __dirname: 'readonly',
+        module: 'writable',
+        require: 'readonly',
+        process: 'readonly',
+      },
+    },
   },
 ];

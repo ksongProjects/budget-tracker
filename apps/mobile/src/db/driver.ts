@@ -1,0 +1,67 @@
+import * as SQLite from 'expo-sqlite';
+import { DatabaseError } from '@budget/db';
+import type { SqlParams, SqliteDriver } from '@budget/db';
+
+/**
+ * expo-sqlite behind the shared SqliteDriver contract.
+ *
+ * Correctness here is checked by running DRIVER_CONTRACT from @budget/db on a
+ * device — see src/db/driver-contract.native.test.ts. CI cannot run it, so the
+ * contract is the only thing keeping this honest against the node driver.
+ */
+
+export const DATABASE_NAME = 'budget.db';
+
+export async function createExpoDriver(name: string = DATABASE_NAME): Promise<SqliteDriver> {
+  const db = await SQLite.openDatabaseAsync(name);
+
+  // Per-connection, and not defaults. Without foreign_keys every referential
+  // bug becomes silent corruption; without WAL a write blocks concurrent reads.
+  await db.execAsync('PRAGMA journal_mode = WAL');
+  await db.execAsync('PRAGMA foreign_keys = ON');
+  await db.execAsync('PRAGMA busy_timeout = 5000');
+
+  let inTransaction = false;
+
+  return {
+    async exec(sql) {
+      await db.execAsync(sql);
+    },
+
+    async run(sql, params = []) {
+      const result = await db.runAsync(sql, params as SQLite.SQLiteBindValue[]);
+      return { changes: result.changes };
+    },
+
+    async all<T>(sql: string, params: SqlParams = []) {
+      return await db.getAllAsync<T>(sql, params as SQLite.SQLiteBindValue[]);
+    },
+
+    async get<T>(sql: string, params: SqlParams = []) {
+      const row = await db.getFirstAsync(sql, params as SQLite.SQLiteBindValue[]);
+      return (row ?? undefined) as T | undefined;
+    },
+
+    async transaction<T>(fn: () => Promise<T>): Promise<T> {
+      if (inTransaction) {
+        throw new DatabaseError('transactions must not be nested; compose within one call');
+      }
+      inTransaction = true;
+      await db.execAsync('BEGIN');
+      try {
+        const result = await fn();
+        await db.execAsync('COMMIT');
+        return result;
+      } catch (error) {
+        await db.execAsync('ROLLBACK');
+        throw error;
+      } finally {
+        inTransaction = false;
+      }
+    },
+
+    async close() {
+      await db.closeAsync();
+    },
+  };
+}
