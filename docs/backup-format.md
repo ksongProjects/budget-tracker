@@ -63,12 +63,40 @@ Content hashes in the manifest let restore verify each entry after reassembly an
 let a future incremental format skip unchanged documents (deferred, noted, not
 built).
 
+## Writing a backup with neither secret present
+
+Both BMK wraps are ciphertext, so a device can keep them and reuse them verbatim
+in later archives. That is what makes an **automatic** backup possible: when the
+app is sent to the background, nobody is there to type a password or read a
+recovery key off paper, and the BMK is stable by design, so the wraps written at
+setup stay correct forever.
+
+Keeping them costs nothing an attacker does not already have — the BMK itself is
+in the same OS keystore, and it unwraps every archive key directly. What is
+never stored is either *secret*: the password and the Recovery Key exist only in
+memory, only while the user is supplying them.
+
+The archive key is still fresh per archive, so this does not make one compromised
+key open the whole history.
+
+One consequence has teeth: **a restore must replace the stored wraps with the
+restored archive's own**, because they wrap that archive's BMK and the ones
+already on the device wrap the BMK it had a moment earlier. Leaving them would
+make the next automatic backup seal a file whose wraps hand back the wrong master
+key — an archive nothing opens, discovered only on the day it is needed.
+
 ## Naming and retention
 
 `btbk-v1-<device_id_short>-<ISO8601>.btbk`, e.g. `btbk-v1-9f3a-2026-08-29T203000Z.btbk`.
 Device id in the name lets Merge-aware tooling and the Drive connector prune per
-device. Retention: keep last N per device (default 10) plus the newest of each of
-the last 3 months; prune runs after each successful upload.
+device.
+
+**On the device today**: keep the newest 5 archives, and delete any `.partial`
+left by an interrupted write. Prune runs after each successful backup. The
+richer policy — last N *per device*, plus the newest of each of the last three
+months — belongs to the Drive connector, where archives from several devices
+land in one place; on a phone every archive is this device's and the newest is
+the one that matters.
 
 ## Restore = Merge
 

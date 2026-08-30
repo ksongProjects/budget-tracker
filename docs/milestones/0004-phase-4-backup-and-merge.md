@@ -166,8 +166,71 @@ A design point worth recording: the recovery key is never stored, but its
 is what lets later backups carry a recovery path without the key being on the
 device.
 
+## Addendum 3 — restore proven on a device that had never seen the data
+
+The gap left open above is closed. The run was deliberately the disaster case
+rather than the convenient one: seed 10,000 rows, set up backup, write an
+archive, copy it off, **wipe the app completely** — ledger, keystore, archives —
+and restore onto an install with nothing on it, using only the password.
+
+**10,000 rows restored in 25.8 s**, from a file chosen out of Downloads. The
+batched merge holds at scale on real hardware. Restoring the same archive a
+second time onto the now-populated ledger took **2.0 s** and reported 10,000
+rows already current — order-independent merge doing exactly nothing, quickly.
+
+Four defects, each of which only a device could show:
+
+1. **Restore could not work on a fresh device at all.** The KEK was derived with
+   a salt minted locally, not the salt in the archive's own header, so a phone
+   with no prior key material produced a key that opened nothing. The archive
+   has carried its salt since v1 precisely so this case works; nothing read it.
+   Now `deriveArchiveSecret` reads the header.
+2. **Restore was unreachable before setup.** It lived behind the "backup is on"
+   screen — the door it is meant to open. It is now offered on the first screen,
+   with a file picker, because the device that needs it most is a new one.
+3. **The snapshot was opened by name, not by path.** expo-sqlite resolves a bare
+   name against its own directory, so `restore.db` was written to the backups
+   folder and a different, empty `restore.db` was opened beside the real ledger:
+   `no such table: merchants`. This is what the earlier "tangled in Metro
+   reloads" run was actually hitting. The directory is now passed explicitly.
+4. **The decrypted snapshot was left on disk.** A plaintext copy of the entire
+   ledger sat in app storage after every restore, undoing the point of shipping
+   the data encrypted. It is deleted in a `finally`, journal files included.
+
+## Addendum 4 — automatic backups (4.5) and export (4.6)
+
+**Automatic backup.** Backgrounding the app writes an archive; a best-effort
+`expo-background-task` schedule is a second chance, not the mechanism. Two
+guards keep it from encrypting megabytes every time the user switches apps: a
+6-hour minimum since the last archive, and a check that any row actually changed
+since then. Retention keeps the newest 5 and deletes interrupted `.partial`
+files. Verified on device: with the archives cleared, sending the app to the
+background wrote a complete 2.94 MB archive unattended.
+
+This needed one format change. `writeArchive` now takes the password side as
+either the KEK or a **stored wrap**, symmetrically with the recovery side. No
+secret is stored — a wrap is ciphertext, and the BMK it protects is already in
+the same keystore — but it is what lets a backup run with nobody present to type
+a password. The consequence with teeth is recorded in
+[backup-format.md](../backup-format.md): a restore must adopt the restored
+archive's wraps, or the next automatic backup seals a file whose wraps hand back
+the wrong master key. Verified on device: an archive written after a restore
+opens with the original password.
+
+**Export.** CSV and a PDF report, both plaintext, with the warning above the
+buttons rather than after the fact. Totals cover every row but are computed from
+confirmed entries only — an unconfirmed row is a guess the user has not agreed
+with. Two things the tests caught before the device did: the spreadsheet-formula
+guard was mangling negative amounts into text (it now applies to free text only,
+never to the amount column), and a merchant name a spreadsheet would execute is
+defused with a leading apostrophe.
+
+The device caught the third: **rendering 10,000 entries into the print WebView
+took the emulator down hard enough to need a kill.** The report now lists the
+newest 500 and says where the rest are; the CSV, which no WebView touches, stays
+complete. A 10,000-row ledger exports a 599 KB CSV and an 18-page, 87 KB PDF.
+
 ## Next
 
-Wire it into the app: the recovery-key ceremony (4.2), a real snapshot-and-store
-backup, restore-and-merge, then scheduled backups (4.5) and export (4.6). The
-crypto underneath is now verified on the hardware that will run it.
+Phase 4 is complete. Phase 5 is the Drive connector, where retention becomes
+per-device and archives from several devices land in one place.
