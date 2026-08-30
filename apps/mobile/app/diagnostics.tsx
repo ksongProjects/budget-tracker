@@ -18,6 +18,12 @@ import { extractReceipt } from '@budget/extract';
 import { formatAmount } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
 import { createExpoDriver } from '../src/db/driver';
+import {
+  isAutoBackupRegistered,
+  registerAutoBackupTask,
+  triggerAutoBackupForTesting,
+} from '../src/backup/auto';
+import { lastBackupAt, listBackups, readScheduledRun } from '../src/backup/service';
 import { loadOcrEngine } from '../src/capture/ocr';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
@@ -46,6 +52,54 @@ export default function DiagnosticsScreen(): ReactNode {
   const [cryptoRunning, setCryptoRunning] = useState(false);
   const [archiveLines, setArchiveLines] = useState<string[]>([]);
   const [archiveRunning, setArchiveRunning] = useState(false);
+  const [scheduleLines, setScheduleLines] = useState<string[]>([]);
+  const [scheduleRunning, setScheduleRunning] = useState(false);
+
+  /**
+   * Checks the OS-scheduled backup path.
+   *
+   * It cannot be run from here: expo-background-task refuses while the app is
+   * foregrounded ("runTasks: App is in the foreground") and only reschedules,
+   * so the trigger returns null and nothing happens. What this can do is report
+   * whether the OS is holding a registration, and show what the worker recorded
+   * the last time it did run — which is the only evidence that exists, since
+   * the task runs with no UI attached.
+   */
+  const runSchedule = async (): Promise<void> => {
+    setScheduleRunning(true);
+    setScheduleLines([]);
+
+    const lines: string[] = [];
+    try {
+      lines.push(`status: ${String(await registerAutoBackupTask())} (2 = available)`);
+      lines.push(`registered: ${String(await isAutoBackupRegistered())}`);
+
+      // Asked for anyway, so the null result is visible rather than folklore.
+      lines.push(`trigger from the foreground: ${String(await triggerAutoBackupForTesting())}`);
+
+      const run = await readScheduledRun();
+      lines.push(
+        run === undefined
+          ? 'the scheduled worker has never run on this device'
+          : `last worker run: ${run.outcome}${run.error === undefined ? '' : ` — ${run.error}`}` +
+            ` at ${new Date(run.at).toLocaleString()}`,
+      );
+
+      const listStarted = Date.now();
+      const backups = await listBackups();
+      lines.push(`listBackups: ${String(backups.length)} in ${String(Date.now() - listStarted)} ms`);
+      lines.push(`newest archive: ${String((await lastBackupAt()) ?? 'none')}`);
+      lines.push(
+        'to make the OS run it: background the app, then ' +
+          'adb shell cmd jobscheduler run -f <package> <job id>',
+      );
+    } catch (cause) {
+      lines.push(`failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+
+    setScheduleLines(lines);
+    setScheduleRunning(false);
+  };
 
   /**
    * Runs the published crypto vectors against native libsodium.
@@ -288,6 +342,22 @@ export default function DiagnosticsScreen(): ReactNode {
             : `${String(failed)} of ${String(results.length)} failed`}
         </Text>
       )}
+
+      <Pressable
+        style={styles.button}
+        onPress={() => void runSchedule()}
+        disabled={scheduleRunning}
+      >
+        <Text style={styles.buttonText}>
+          {scheduleRunning ? 'Checking…' : 'Check the scheduled backup'}
+        </Text>
+      </Pressable>
+
+      {scheduleLines.map((line) => (
+        <Text key={line} style={text.muted}>
+          {line}
+        </Text>
+      ))}
 
       <Pressable style={styles.button} onPress={() => void runCrypto()} disabled={cryptoRunning}>
         <Text style={styles.buttonText}>
