@@ -147,7 +147,7 @@ describe('editing a spend', () => {
     await openFirstRow();
 
     field('#delete').click();
-    await waitFor(() => root.textContent?.includes('Nothing captured yet') === true);
+    await waitFor(() => root.textContent.includes('Nothing captured yet'));
 
     expect(root.textContent).toContain('Nothing captured yet');
   });
