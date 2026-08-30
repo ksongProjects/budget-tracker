@@ -1,6 +1,7 @@
 import { DriveConnector } from '@budget/backup';
 import type { CloudConnector, HttpClient } from '@budget/backup';
 import { accessToken } from './auth';
+import { driveEndpoints, usingFakeDrive } from './config';
 
 /**
  * The Drive connector, wired to this platform.
@@ -17,21 +18,43 @@ import { accessToken } from './auth';
  * a string — would double a three-megabyte archive in memory on a phone.
  */
 const http: HttpClient = async (url, request) => {
-  const response = await fetch(url, {
-    method: request.method,
-    headers: request.headers,
-    ...(request.body === undefined ? {} : { body: request.body as BodyInit }),
-  });
+  // A dead socket that never answers is the case this guards: without it an
+  // upload waits forever and the retry logic never gets a chance to run.
+  const controller = new AbortController();
+  const timer =
+    request.timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          controller.abort();
+        }, request.timeoutMs);
 
-  return {
-    status: response.status,
-    ok: response.ok,
-    headers: { get: (name: string) => response.headers.get(name) },
-    text: () => response.text(),
-    arrayBuffer: () => response.arrayBuffer(),
-  };
+  try {
+    const response = await fetch(url, {
+      method: request.method,
+      headers: request.headers,
+      signal: controller.signal,
+      ...(request.body === undefined ? {} : { body: request.body as BodyInit }),
+    });
+
+    return {
+      status: response.status,
+      ok: response.ok,
+      headers: { get: (name: string) => response.headers.get(name) },
+      text: () => response.text(),
+      arrayBuffer: () => response.arrayBuffer(),
+    };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 };
 
 export function createDriveConnector(): CloudConnector {
-  return new DriveConnector({ http, token: accessToken });
+  return new DriveConnector({
+    http,
+    // The stand-in checks that a token was sent, not which one, so a
+    // development build can exercise every other part of the path without an
+    // account behind it.
+    token: usingFakeDrive() ? () => Promise.resolve('development') : accessToken,
+    endpoints: driveEndpoints(),
+  });
 }

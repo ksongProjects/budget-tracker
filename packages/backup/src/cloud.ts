@@ -75,6 +75,15 @@ export interface HttpRequest {
   readonly method: string;
   readonly headers: Record<string, string>;
   readonly body?: string | Uint8Array;
+  /**
+   * How long to wait before abandoning the request.
+   *
+   * A connection that dies without answering is not a failure the retry logic
+   * can see — nothing rejects, so an upload waits forever behind a spinner that
+   * never moves. Adapters should honour this; the connector also enforces it,
+   * because one that does not would hang the app.
+   */
+  readonly timeoutMs?: number;
 }
 
 export type HttpClient = (url: string, request: HttpRequest) => Promise<HttpResponse>;

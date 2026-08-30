@@ -25,9 +25,26 @@ const FILES = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 const FIELDS = 'id,name,size,createdTime';
 
+export interface DriveEndpoints {
+  readonly files: string;
+  readonly upload: string;
+}
+
+export const GOOGLE_DRIVE: DriveEndpoints = { files: FILES, upload: UPLOAD };
+
 /** Drive requires resumable chunks to be a multiple of 256 KiB. */
 const CHUNK_ALIGNMENT = 256 * 1024;
 export const DEFAULT_CHUNK_BYTES = 4 * CHUNK_ALIGNMENT;
+
+/**
+ * How long one request may take before it is abandoned and retried.
+ *
+ * Generous, because a megabyte over a bad connection is slow, not broken. But
+ * finite: a socket that dies mid-chunk without answering was observed hanging
+ * an upload indefinitely, and no amount of retry logic helps when nothing ever
+ * fails.
+ */
+export const DEFAULT_TIMEOUT_MS = 60_000;
 
 export interface DriveOptions {
   readonly http: HttpClient;
@@ -39,6 +56,14 @@ export interface DriveOptions {
   readonly chunkBytes?: number;
   /** Attempts per chunk before giving up. Interruptions are the normal case, not the exception. */
   readonly maxAttempts?: number;
+  /**
+   * Where Drive lives. Overridden only to point at a stand-in that speaks the
+   * same protocol, which is how the upload path gets exercised on a device with
+   * no Google account attached.
+   */
+  readonly endpoints?: DriveEndpoints;
+  /** Per-request patience. See `HttpRequest.timeoutMs`. */
+  readonly timeoutMs?: number;
 }
 
 /** A resumable upload in progress. Persist it and an interrupted upload can carry on later. */
@@ -51,6 +76,8 @@ export interface UploadSession {
 export class DriveConnector implements CloudConnector {
   private readonly chunkBytes: number;
   private readonly maxAttempts: number;
+  private readonly endpoints: DriveEndpoints;
+  private readonly timeoutMs: number;
 
   constructor(private readonly options: DriveOptions) {
     // Aligned up rather than rejected: a caller asking for "about a megabyte"
@@ -60,6 +87,8 @@ export class DriveConnector implements CloudConnector {
     const blocks = Math.max(1, Math.ceil(requested / CHUNK_ALIGNMENT));
     this.chunkBytes = blocks * CHUNK_ALIGNMENT;
     this.maxAttempts = options.maxAttempts ?? 5;
+    this.endpoints = options.endpoints ?? GOOGLE_DRIVE;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
   async list(): Promise<RemoteArchive[]> {
@@ -74,7 +103,7 @@ export class DriveConnector implements CloudConnector {
       });
       if (pageToken !== undefined) query.set('pageToken', pageToken);
 
-      const response = await this.send(`${FILES}?${query.toString()}`, { method: 'GET', headers: {} });
+      const response = await this.send(`${this.endpoints.files}?${query.toString()}`, { method: 'GET', headers: {} });
       const body = JSON.parse(await response.text()) as {
         files?: { id: string; name: string; size?: string; createdTime?: string }[];
         nextPageToken?: string;
@@ -104,7 +133,7 @@ export class DriveConnector implements CloudConnector {
    */
   async createSession(name: string, total: number): Promise<UploadSession> {
     const query = new URLSearchParams({ uploadType: 'resumable', fields: FIELDS });
-    const response = await this.send(`${UPLOAD}?${query.toString()}`, {
+    const response = await this.send(`${this.endpoints.upload}?${query.toString()}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json; charset=UTF-8',
@@ -208,7 +237,7 @@ export class DriveConnector implements CloudConnector {
   }
 
   async download(id: string): Promise<Uint8Array> {
-    const response = await this.send(`${FILES}/${encodeURIComponent(id)}?alt=media`, {
+    const response = await this.send(`${this.endpoints.files}/${encodeURIComponent(id)}?alt=media`, {
       method: 'GET',
       headers: {},
     });
@@ -217,7 +246,39 @@ export class DriveConnector implements CloudConnector {
   }
 
   async remove(id: string): Promise<void> {
-    await this.send(`${FILES}/${encodeURIComponent(id)}`, { method: 'DELETE', headers: {} });
+    await this.send(`${this.endpoints.files}/${encodeURIComponent(id)}`, { method: 'DELETE', headers: {} });
+  }
+
+  /**
+   * One chunk, authorised like every other request.
+   *
+   * Drive accepts an unauthenticated PUT to a session URI — the URI is its own
+   * capability — but sending the token anyway keeps chunks on the same path as
+   * the resume probe, which means one place handles expiry, retries and
+   * transient failures instead of two that can drift apart.
+   */
+  /**
+   * The backstop for an adapter that does not honour `timeoutMs`.
+   *
+   * The underlying request is left running — nothing in this interface can
+   * cancel it — but the upload stops waiting on it, which is the difference
+   * between a retry and a hang.
+   */
+  private async withTimeout(work: Promise<HttpResponse>): Promise<HttpResponse> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        work,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new TransientCloudError('Drive did not answer in time.'));
+          }, this.timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   private async sendChunk(
@@ -226,16 +287,14 @@ export class DriveConnector implements CloudConnector {
     start: number,
     end: number,
   ): Promise<HttpResponse> {
-    return this.attempt(() =>
-      this.options.http(session.uri, {
-        method: 'PUT',
-        headers: {
-          'Content-Range': `bytes ${String(start)}-${String(end - 1)}/${String(session.total)}`,
-          'Content-Length': String(chunk.length),
-        },
-        body: chunk,
-      }),
-    );
+    return this.send(session.uri, {
+      method: 'PUT',
+      headers: {
+        'Content-Range': `bytes ${String(start)}-${String(end - 1)}/${String(session.total)}`,
+        'Content-Length': String(chunk.length),
+      },
+      body: chunk,
+    });
   }
 
   /**
@@ -256,6 +315,7 @@ export class DriveConnector implements CloudConnector {
       const response = await this.options.http(url, {
         ...request,
         headers: { ...request.headers, Authorization: `Bearer ${token}` },
+        timeoutMs: this.timeoutMs,
       });
 
       if (response.status === 401 && !refreshed) {
@@ -272,7 +332,7 @@ export class DriveConnector implements CloudConnector {
 
     for (let attempt = 0; attempt < this.maxAttempts; attempt += 1) {
       try {
-        const response = await work();
+        const response = await this.withTimeout(work());
         if (isTransientStatus(response.status)) {
           lastError = new TransientCloudError(
             `Drive is unavailable (${String(response.status)}).`,

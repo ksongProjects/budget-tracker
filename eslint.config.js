@@ -57,6 +57,16 @@ export default [
   },
 
   // Build tooling that has to stay CommonJS (Metro reads it with require).
+  // Node scripts: real ES modules, run by node rather than bundled.
+  {
+    files: ['tools/**/*.mjs'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      sourceType: 'module',
+      globals: { process: 'readonly', console: 'readonly', Buffer: 'readonly' },
+    },
+  },
+
   {
     files: ['**/metro.config.js', '**/babel.config.js'],
     ...tseslint.configs.disableTypeChecked,

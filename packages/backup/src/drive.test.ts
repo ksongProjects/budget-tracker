@@ -227,6 +227,37 @@ describe('upload', () => {
     ).rejects.toBeInstanceOf(CloudError);
   });
 
+  it('gives up on a connection that never answers', async () => {
+    // Observed on a device: the server dropped the socket without replying and
+    // the upload sat at 35% indefinitely. Retries cannot help when nothing
+    // rejects, so the wait itself has to end.
+    const hang: HttpClient = () => new Promise(() => undefined);
+
+    await expect(
+      new DriveConnector({
+        http: hang,
+        token,
+        chunkBytes,
+        timeoutMs: 20,
+        maxAttempts: 2,
+      }).upload('archive.btbk', bytes),
+    ).rejects.toThrow(/did not answer in time/);
+  });
+
+  it('passes its timeout down to the transport', async () => {
+    const seen: (number | undefined)[] = [];
+    const { http } = transport([reply(200, '', { Location: SESSION })]);
+
+    const recording: HttpClient = (url, request) => {
+      seen.push(request.timeoutMs);
+      return http(url, request);
+    };
+
+    await new DriveConnector({ http: recording, token, timeoutMs: 1234 }).createSession('a', 1);
+
+    expect(seen).toEqual([1234]);
+  });
+
   it('refuses to start without a session URI', async () => {
     const { http } = transport([reply(200)]);
 

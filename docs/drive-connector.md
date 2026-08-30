@@ -73,6 +73,27 @@ While the consent screen is unverified, Google caps testers at around 100 and
 expires refresh tokens after about a week. Fine for development; not something
 to ship on.
 
+## Testing without an account
+
+`packages/backup/src/fake-drive.ts` implements the protocol in memory — sessions,
+`308` with a `Range`, the file JSON — and enforces its rules: uploads must target
+`appDataFolder`, a chunk must continue where the last one stopped. The connector
+is tested against it, so what is checked is agreement with a server that holds
+state rather than agreement with our own stubs.
+
+`tools/fake-drive.mjs` puts it behind a socket, which is how the phone exercises
+the real upload path with nothing leaving the machine:
+
+```
+pnpm --filter @budget/backup build
+node tools/fake-drive.mjs --fail-every=2
+cd apps/mobile && EXPO_PUBLIC_FAKE_DRIVE_URL=http://10.0.2.2:8787 npx expo start
+```
+
+`--fail-every=N` drops one chunk in every N by destroying the connection, which
+is what the resume path exists for. The override is ignored unless `__DEV__`, so
+a release build cannot be pointed elsewhere by an inherited environment.
+
 ## Later connectors
 
 Dropbox and WebDAV fit the same interface: upload/list/prune/download over opaque

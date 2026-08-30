@@ -1,6 +1,7 @@
 import * as AuthSession from 'expo-auth-session';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import { usingFakeDrive } from './config';
 
 /**
  * Signing in to Google Drive, and nothing else.
@@ -64,7 +65,7 @@ export function clientId(): string | undefined {
 }
 
 export function isDriveConfigured(): boolean {
-  return clientId() !== undefined;
+  return usingFakeDrive() || clientId() !== undefined;
 }
 
 function redirectUri(id: string): string {
@@ -121,6 +122,9 @@ export async function signIn(): Promise<boolean> {
 }
 
 export async function isSignedIn(): Promise<boolean> {
+  // Nothing to sign in to when the connector is aimed at the local stand-in.
+  if (usingFakeDrive()) return true;
+
   return (await load()) !== undefined;
 }
 
