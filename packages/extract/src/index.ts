@@ -1,5 +1,9 @@
 /**
- * @budget/extract — scaffold only. Filled in by later phases; see
- * docs/implementation-plan.md.
+ * @budget/extract — the tiered pipeline that turns captures into candidate
+ * transactions, on device. See docs/extraction.md.
+ *
+ * Engines live behind the interfaces in types.ts; everything here is pure
+ * TypeScript so the rules are testable in CI without a device.
  */
-export const PACKAGE_NAME = '@budget/extract';
+export * from './types.js';
+export * from './receipt.js';

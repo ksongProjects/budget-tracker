@@ -1,3 +1,8 @@
+// Must come first: Hermes has no Web Crypto, and @budget/schema's uuidv7 uses
+// crypto.getRandomValues. Without this the database cannot even be opened.
+// Keeping the polyfill here rather than in the package leaves the package
+// platform-agnostic — the app supplies what its runtime lacks.
+import 'react-native-get-random-values';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
