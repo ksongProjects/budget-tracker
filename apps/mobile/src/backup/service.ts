@@ -3,7 +3,13 @@ import { SCHEMA_VERSION, mergeAll } from '@budget/db';
 import type { MergeableRow, RepositoryContext } from '@budget/db';
 import { KDF_PARAMS, deriveKek } from '@budget/crypto';
 import type { SodiumBackend } from '@budget/crypto';
-import { deserializeWrappedKey, readArchive, readHeader, writeArchive } from '@budget/backup';
+import {
+  archiveName,
+  deserializeWrappedKey,
+  readArchive,
+  readHeader,
+  writeArchive,
+} from '@budget/backup';
 import type { ArchiveEntry } from '@budget/backup';
 import { createNativeSodiumBackend } from '../crypto/backend';
 import { createExpoDriver } from '../db/driver';
@@ -188,11 +194,9 @@ export async function createBackup(
   await Promise.all([storeRecoveryWrap(recoveryWrap), storePasswordWrap(passwordWrap)]);
 
   await ensureDir();
-  // The device id is in the name so tooling that sees archives from several
-  // devices — the Drive connector, next phase — can prune per device without
-  // opening any of them.
-  const stamp = new Date(createdAt).toISOString().replace(/[:.]/g, '-');
-  const path = `${BACKUP_DIR}btbk-v1-${ctx.deviceId.slice(0, 4)}-${stamp}.btbk`;
+  // The name is built by the same code the Drive connector parses, so a local
+  // file and a listing from the cloud describe themselves identically.
+  const path = `${BACKUP_DIR}${archiveName(ctx.deviceId, createdAt)}`;
 
   // Written to a temporary name and renamed, so a backup interrupted midway
   // never leaves a half-file under a name that looks complete.
