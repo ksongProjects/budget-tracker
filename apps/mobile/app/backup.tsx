@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -6,11 +6,11 @@ import { formatRecoveryKey, generateRecoveryKey, parseRecoveryKey } from '@budge
 import { deriveKek, KDF_PARAMS } from '@budget/crypto';
 import { useLedger } from '../src/db/provider';
 import { createNativeSodiumBackend } from '../src/crypto/backend';
-import { loadOrCreateKeyMaterial } from '../src/backup/keys';
+import { hasKeyMaterial, loadOrCreateKeyMaterial } from '../src/backup/keys';
 import { createBackup, listBackups, readBackupFile, restoreBackup } from '../src/backup/service';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
-type Stage = 'idle' | 'password' | 'recovery-shown' | 'recovery-verify' | 'done';
+type Stage = 'loading' | 'idle' | 'password' | 'recovery-shown' | 'recovery-verify' | 'done';
 
 /**
  * Enabling backup, which is also the recovery-key ceremony.
@@ -23,7 +23,7 @@ type Stage = 'idle' | 'password' | 'recovery-shown' | 'recovery-verify' | 'done'
 export default function BackupScreen(): ReactNode {
   const ledger = useLedger();
 
-  const [stage, setStage] = useState<Stage>('idle');
+  const [stage, setStage] = useState<Stage>('loading');
   const [password, setPassword] = useState('');
   const [recoveryKey, setRecoveryKey] = useState<Uint8Array | null>(null);
   const [typedBack, setTypedBack] = useState('');
@@ -32,6 +32,19 @@ export default function BackupScreen(): ReactNode {
   const [error, setError] = useState<string | null>(null);
 
   const printed = recoveryKey ? formatRecoveryKey(recoveryKey) : '';
+
+  // Backup being set up is a fact about the device, not about this screen's
+  // lifetime. Without this, reopening the screen offers to set up again and
+  // would mint a second recovery key against the same master key.
+  useEffect(() => {
+    let cancelled = false;
+    void hasKeyMaterial().then((exists) => {
+      if (!cancelled) setStage(exists ? 'done' : 'idle');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const begin = (): void => {
     setError(null);
@@ -153,6 +166,8 @@ export default function BackupScreen(): ReactNode {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      {stage === 'loading' && <Text style={text.muted}>Checking…</Text>}
+
       {stage === 'idle' && (
         <>
           <Text style={text.body}>
