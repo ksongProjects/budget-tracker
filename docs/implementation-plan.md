@@ -152,6 +152,9 @@ Goal: browser session hydrated from a backup, fast.
 
 Exit: cross-device story works end-to-end through Drive with no server of ours.
 
+Work knowingly left undone inside closed phases is listed in
+[deferred.md](deferred.md), with what would unblock each item.
+
 ## Phase 7 — Statements (Tier 0 CSV + Tier 1 PDF)
 
 | # | Task | Acceptance |

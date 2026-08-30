@@ -1,0 +1,90 @@
+# Deferred work
+
+Everything knowingly left undone, with the reason and what would unblock it.
+Kept in one file because the alternative is a promise remembered by whoever was
+in the room — and the items here are exactly the ones that look finished from
+the outside.
+
+Ordinary future phases are not listed; the implementation plan already holds
+those. This is for work inside phases that are otherwise closed.
+
+## Blocked on a Google account
+
+Nothing in the repository carries a Google identity, and none of this can be
+checked without one. See [drive-connector.md](drive-connector.md#setting-one-up)
+for exactly what to create.
+
+- **The consent screen has never been shown.** Scope, branding, and the
+  unverified-app warning are unproven.
+- **No token has ever come from Google.** The exchange, the refresh, and the
+  behaviour of an expired refresh token are written and untested against the
+  real endpoint.
+- **Phase 5's exit criterion — new phone → sign into Drive → everything back —
+  is not met.** Everything up to the consent screen is exercised against the
+  stand-in.
+- **Phase 6.3's acceptance — mobile backup → web edit → web backup → mobile
+  merge — cannot be run**, and additionally needs the browser to write backups
+  (below).
+
+## Backups and the cloud
+
+- **The browser cannot write a backup.** It reads and restores only. Writing
+  needs a Backup Master Key that survives a reload, and browser storage is a
+  materially different threat model from a phone's OS keystore. That decision
+  deserves its own design rather than being made in passing.
+- **No incremental archives.** Every backup carries every document again. The
+  manifest already records content hashes so a future format can skip unchanged
+  ones; a photo-heavy ledger will want this before it wants anything else here.
+- **Documents are not restored in the browser.** The web import reads the ledger
+  out of an archive and counts the documents it carried, but does not write them
+  anywhere — there is no capture story on the web yet for them to belong to.
+- **The scheduled backup's job carries a network constraint** that
+  `expo-background-task` sets and its API does not expose. A backup needing no
+  network will not fire while the device is offline. Backgrounding remains the
+  mechanism; the schedule is the second chance.
+- **The OS schedule has only ever been forced.** It was run through
+  `adb shell cmd jobscheduler run -f`, which exercises the same code path, but
+  no run has been observed happening on its own twelve hours later.
+- **The recovery key is shown as text only.** Phase 4.2 asked for a key file and
+  a QR code; what exists is the printed key and a copy button. A user without a
+  password manager has nowhere good to put it.
+- **Nothing has run on iOS.** SecureStore accessibility while the device is
+  locked is the specific unknown: a scheduled backup that cannot read the key
+  material at 3am fails silently on that platform.
+
+## Web app
+
+- **Import decrypts on the main thread.** 24 MB takes about a second, which is
+  within budget, but this is the first thing to move into the worker when
+  archives grow.
+- **Two tabs on one origin are not handled.** The OPFS pool holds its access
+  handles exclusively, so a second tab silently gets in-memory storage. It says
+  so on screen, which is the floor rather than an answer.
+- **No File System Access API handle-remembering.** Phase 6.2 asked for it on
+  Chromium with a picker fallback; the picker is what exists. It is worth doing
+  when the browser also writes backups, and pointless before that.
+- **The app has no styling.** It is semantic HTML with no stylesheet. Every
+  screen works and none of them are pleasant.
+- **The summary totals in JavaScript** over the newest 5,000 rows rather than in
+  SQL. Correct at any size a browser will hold, wasteful past that.
+- **The bundle budget's eager/lazy split reads Vite's manifest format.** A change
+  there needs the check updated with it, and the failure mode is a budget that
+  silently measures the wrong thing.
+
+## Mobile
+
+- **A stray empty `restore.db`** may sit in the SQLite directory of any device
+  that ran a build from before the restore-path fix. Cosmetic; cleared by a
+  reinstall.
+- **No management screens** for accounts, categories or merchants. Rows carry
+  those columns and imports will populate them; nothing edits them yet.
+
+## Testing
+
+- **The frozen v1 archive fixture is not a real SQLite file.** It holds marker
+  text, so it proves the *format* still opens and cannot prove a real ledger
+  still restores. A second frozen fixture containing an actual snapshot would
+  close that.
+- **No mobile UI tests.** The screens are checked by driving a device by hand;
+  only the logic beneath them is under test. The web app's screens *are* tested,
+  which is the shape mobile should copy.
