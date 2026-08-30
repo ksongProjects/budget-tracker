@@ -6,8 +6,10 @@ import 'react-native-get-random-values';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { LedgerProvider, useLedgerState } from '../src/db/provider';
+import { registerAutoBackupTask, useAutoBackup } from '../src/backup/auto';
 import { colors, spacing, text } from '../src/ui/theme';
 
 export default function RootLayout(): ReactNode {
@@ -26,6 +28,18 @@ export default function RootLayout(): ReactNode {
  */
 function LedgerGate(): ReactNode {
   const state = useLedgerState();
+
+  // Mounted at the root, not on the backup screen: a backup that only happens
+  // while the user is looking at the backup screen is not an automatic backup.
+  useAutoBackup(state.status === 'ready' ? state.ledger : undefined);
+
+  useEffect(() => {
+    void registerAutoBackupTask().catch((cause: unknown) => {
+      // The OS schedule is the second chance, not the mechanism. Losing it is
+      // not worth a message on a screen the user came to for something else.
+      console.warn('could not register the backup schedule', cause);
+    });
+  }, []);
 
   if (state.status === 'opening') {
     return (
