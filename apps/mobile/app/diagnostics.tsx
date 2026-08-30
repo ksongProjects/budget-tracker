@@ -4,7 +4,15 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { DRIVER_CONTRACT } from '@budget/db';
-import { CRYPTO_VECTORS } from '@budget/crypto';
+import {
+  CRYPTO_VECTORS,
+  KDF_PARAMS,
+  deriveKek,
+  formatRecoveryKey,
+  generateRecoveryKey,
+  generateSalt,
+} from '@budget/crypto';
+import { readArchive, writeArchive } from '@budget/backup';
 import { createNativeSodiumBackend } from '../src/crypto/backend';
 import { extractReceipt } from '@budget/extract';
 import { formatAmount } from '@budget/schema';
@@ -36,6 +44,8 @@ export default function DiagnosticsScreen(): ReactNode {
   const [ocrRunning, setOcrRunning] = useState(false);
   const [cryptoResults, setCryptoResults] = useState<Result[]>([]);
   const [cryptoRunning, setCryptoRunning] = useState(false);
+  const [archiveLines, setArchiveLines] = useState<string[]>([]);
+  const [archiveRunning, setArchiveRunning] = useState(false);
 
   /**
    * Runs the published crypto vectors against native libsodium.
@@ -148,6 +158,89 @@ export default function DiagnosticsScreen(): ReactNode {
     setOcrRunning(false);
   };
 
+  /**
+   * A full archive write-and-read on the device, with native crypto.
+   *
+   * The vectors prove the primitives agree; this proves the format built on
+   * them survives Hermes. It is the first thing here to exercise BigInt and
+   * DataView.setBigUint64, which the frame nonces depend on and which no vector
+   * touches.
+   */
+  const runArchive = async (): Promise<void> => {
+    setArchiveRunning(true);
+    setArchiveLines([]);
+
+    const lines: string[] = [];
+    const engine =
+      typeof (globalThis as { HermesInternal?: unknown }).HermesInternal === 'object'
+        ? 'Hermes'
+        : 'JavaScriptCore';
+    lines.push(`JS engine: ${engine}`);
+
+    try {
+      const sodium = await createNativeSodiumBackend();
+
+      const salt = generateSalt(sodium);
+      const started = Date.now();
+      const kek = deriveKek(sodium, 'a real password', salt);
+      lines.push(`Argon2id (64 MiB, t=3): ${String(Date.now() - started)} ms`);
+
+      const recoveryKey = generateRecoveryKey(sodium);
+      lines.push(`recovery key: ${formatRecoveryKey(recoveryKey).slice(0, 11)}…`);
+
+      // Several frames, so the nonce counter actually advances past zero.
+      const payload = new Uint8Array(5000);
+      for (let i = 0; i < payload.length; i += 1) payload[i] = i % 251;
+
+      const { bytes } = writeArchive(
+        sodium,
+        [
+          { id: 'db', kind: 'db', bytes: payload },
+          { id: 'cap-1', kind: 'document', bytes: Uint8Array.from([9, 8, 7, 6]) },
+        ],
+        kek,
+        recoveryKey,
+        salt,
+        {
+          appVersion: '0.1.0',
+          schemaVersion: 2,
+          createdAt: Date.now(),
+          kdfParams: KDF_PARAMS,
+          maxFrameBytes: 1024,
+        },
+      );
+      lines.push(`wrote ${String(bytes.length)} bytes`);
+
+      const byPassword = readArchive(sodium, bytes, kek);
+      const restored = byPassword.entries[0]?.bytes;
+      const roundTripped =
+        restored !== undefined &&
+        restored.length === payload.length &&
+        restored.every((byte, i) => byte === payload[i]);
+      lines.push(roundTripped ? '✓ round-trip byte for byte' : '✗ ROUND-TRIP CORRUPTED');
+
+      const byRecovery = readArchive(sodium, bytes, recoveryKey);
+      lines.push(
+        byRecovery.entries.length === 2 ? '✓ opens with recovery key' : '✗ recovery key failed',
+      );
+
+      // Tamper detection has to work on device too, not just in CI.
+      const tampered = Uint8Array.from(bytes);
+      tampered[bytes.length - 1] = (tampered[bytes.length - 1] ?? 0) ^ 0x01;
+      try {
+        readArchive(sodium, tampered, kek);
+        lines.push('✗ TAMPERED ARCHIVE WAS ACCEPTED');
+      } catch {
+        lines.push('✓ rejects a tampered archive');
+      }
+    } catch (error) {
+      lines.push(`✗ failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    setArchiveLines(lines);
+    setArchiveRunning(false);
+  };
+
   const run = async (): Promise<void> => {
     setRunning(true);
     setResults([]);
@@ -220,6 +313,18 @@ export default function DiagnosticsScreen(): ReactNode {
             {result.error !== undefined && <Text style={styles.errorText}>{result.error}</Text>}
           </View>
         ))}
+
+      <Pressable style={styles.button} onPress={() => void runArchive()} disabled={archiveRunning}>
+        <Text style={styles.buttonText}>
+          {archiveRunning ? 'Writing…' : 'Round-trip a real archive'}
+        </Text>
+      </Pressable>
+
+      {archiveLines.map((line) => (
+        <View key={line} style={styles.row}>
+          <Text style={line.startsWith('✗') ? styles.fail : styles.pass}>{line}</Text>
+        </View>
+      ))}
 
       <Pressable style={styles.button} onPress={() => void runOcr()} disabled={ocrRunning}>
         <Text style={styles.buttonText}>{ocrRunning ? 'Reading…' : 'Run OCR on a known receipt'}</Text>
