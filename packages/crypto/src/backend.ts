@@ -14,13 +14,6 @@ export interface SodiumBackend {
   randomBytes(length: number): Uint8Array;
 
   /**
-   * Plain SHA-256. HMAC is built on this rather than taken from the backend,
-   * because libsodium's `crypto_auth_hmacsha256` fixes the key at 32 bytes and
-   * HKDF needs keys of any length.
-   */
-  sha256(message: Uint8Array): Uint8Array;
-
-  /**
    * Argon2id with the parameters from docs/crypto-design.md. `opsLimit` and
    * `memLimit` are passed explicitly rather than taken from a named preset,
    * because a preset that changes between library versions changes every

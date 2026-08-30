@@ -51,9 +51,8 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
   {
     // RFC 5869 appendix A.1.
     name: 'HKDF-SHA256 matches RFC 5869 test case 1',
-    run(sodium) {
+    run(_sodium) {
       const okm = hkdf(
-        sodium,
         fromHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'),
         fromHex('000102030405060708090a0b0c'),
         fromHex('f0f1f2f3f4f5f6f7f8f9'),
@@ -69,7 +68,7 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
   {
     // RFC 5869 appendix A.2: longer inputs, 82 bytes of output.
     name: 'HKDF-SHA256 matches RFC 5869 test case 2',
-    run(sodium) {
+    run(_sodium) {
       const ikm = fromHex(
         '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' +
           '202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f' +
@@ -87,7 +86,7 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
       );
 
       assertBytes(
-        hkdf(sodium, ikm, salt, info, 82),
+        hkdf(ikm, salt, info, 82),
         'b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c' +
           '59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71' +
           'cc30c58179ec3e87c14c01d5c1f3434f1d87',
@@ -98,10 +97,9 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
   {
     // RFC 5869 appendix A.3: empty salt and info.
     name: 'HKDF-SHA256 matches RFC 5869 test case 3 (empty salt and info)',
-    run(sodium) {
+    run(_sodium) {
       assertBytes(
         hkdf(
-          sodium,
           fromHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'),
           new Uint8Array(0),
           new Uint8Array(0),
@@ -114,10 +112,9 @@ export const CRYPTO_VECTORS: readonly CryptoVector[] = [
   },
   {
     name: 'HMAC-SHA256 matches RFC 4231 test case 1',
-    run(sodium) {
+    run(_sodium) {
       assertBytes(
         hmacSha256(
-          sodium,
           fromHex('0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b'),
           new TextEncoder().encode('Hi There'),
         ),

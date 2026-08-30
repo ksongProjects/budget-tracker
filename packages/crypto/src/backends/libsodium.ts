@@ -18,10 +18,6 @@ export async function createLibsodiumBackend(): Promise<SodiumBackend> {
       return sodium.randombytes_buf(length);
     },
 
-    sha256(message) {
-      return sodium.crypto_hash_sha256(message);
-    },
-
     argon2id(password, salt, opsLimit, memLimitBytes, outputLength) {
       return sodium.crypto_pwhash(
         outputLength,

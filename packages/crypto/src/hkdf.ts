@@ -1,13 +1,17 @@
-import type { SodiumBackend } from './backend.js';
+import { sha256 } from './sha256.js';
 
 /**
  * HKDF-SHA256 (RFC 5869), the subkey derivation in docs/crypto-design.md.
  *
- * libsodium's own KDF is BLAKE2b-based, not HKDF, so this is built on its
- * HMAC-SHA256 primitive. Written out rather than substituted because the design
- * names HKDF-SHA256 specifically, and because RFC 5869 publishes test vectors —
+ * libsodium's own KDF is BLAKE2b-based, not HKDF, so this is written out. The
+ * design names HKDF-SHA256 specifically, and RFC 5869 publishes test vectors —
  * an implementation nobody can check against a standard is one nobody can
  * check.
+ *
+ * Uses the TypeScript SHA-256 rather than a backend primitive, because
+ * react-native-libsodium does not expose crypto_hash_sha256 and deriving keys
+ * differently per platform would make archives written on a phone unopenable
+ * on the web.
  */
 
 const HASH_LENGTH = 32;
@@ -18,13 +22,9 @@ const BLOCK_LENGTH = 64;
  * libsodium's own HMAC fixes the key at 32 bytes, which HKDF cannot use: the
  * salt is the key during extract, and a salt is whatever length it is.
  */
-export function hmacSha256(
-  sodium: SodiumBackend,
-  key: Uint8Array,
-  message: Uint8Array,
-): Uint8Array {
+export function hmacSha256(key: Uint8Array, message: Uint8Array): Uint8Array {
   const block = new Uint8Array(BLOCK_LENGTH);
-  block.set(key.length > BLOCK_LENGTH ? sodium.sha256(key) : key);
+  block.set(key.length > BLOCK_LENGTH ? sha256(key) : key);
 
   const inner = new Uint8Array(BLOCK_LENGTH + message.length);
   const outer = new Uint8Array(BLOCK_LENGTH + HASH_LENGTH);
@@ -36,9 +36,9 @@ export function hmacSha256(
   }
 
   inner.set(message, BLOCK_LENGTH);
-  outer.set(sodium.sha256(inner), BLOCK_LENGTH);
+  outer.set(sha256(inner), BLOCK_LENGTH);
 
-  return sodium.sha256(outer);
+  return sha256(outer);
 }
 
 /**
@@ -47,22 +47,13 @@ export function hmacSha256(
  * The salt is the HMAC key here, not the message: that is the RFC's
  * construction and reversing it silently weakens the result.
  */
-export function hkdfExtract(
-  sodium: SodiumBackend,
-  salt: Uint8Array,
-  ikm: Uint8Array,
-): Uint8Array {
+export function hkdfExtract(salt: Uint8Array, ikm: Uint8Array): Uint8Array {
   const key = salt.length === 0 ? new Uint8Array(HASH_LENGTH) : salt;
-  return hmacSha256(sodium, key, ikm);
+  return hmacSha256(key, ikm);
 }
 
 /** Expand a pseudorandom key into `length` bytes bound to `info`. */
-export function hkdfExpand(
-  sodium: SodiumBackend,
-  prk: Uint8Array,
-  info: Uint8Array,
-  length: number,
-): Uint8Array {
+export function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Uint8Array {
   if (length < 0 || length > 255 * HASH_LENGTH) {
     throw new RangeError(`HKDF cannot produce ${String(length)} bytes`);
   }
@@ -77,7 +68,7 @@ export function hkdfExpand(
     input.set(info, previous.length);
     input[previous.length + info.length] = counter;
 
-    previous = hmacSha256(sodium, prk, input);
+    previous = hmacSha256(prk, input);
     const take = Math.min(previous.length, length - offset);
     output.set(previous.subarray(0, take), offset);
     offset += take;
@@ -88,11 +79,10 @@ export function hkdfExpand(
 
 /** Extract-then-expand, the whole of RFC 5869. */
 export function hkdf(
-  sodium: SodiumBackend,
   ikm: Uint8Array,
   salt: Uint8Array,
   info: Uint8Array,
   length: number,
 ): Uint8Array {
-  return hkdfExpand(sodium, hkdfExtract(sodium, salt, ikm), info, length);
+  return hkdfExpand(hkdfExtract(salt, ikm), info, length);
 }

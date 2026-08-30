@@ -4,6 +4,8 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { DRIVER_CONTRACT } from '@budget/db';
+import { CRYPTO_VECTORS } from '@budget/crypto';
+import { createNativeSodiumBackend } from '../src/crypto/backend';
 import { extractReceipt } from '@budget/extract';
 import { formatAmount } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
@@ -32,6 +34,48 @@ export default function DiagnosticsScreen(): ReactNode {
   const [running, setRunning] = useState(false);
   const [ocr, setOcr] = useState<string[]>([]);
   const [ocrRunning, setOcrRunning] = useState(false);
+  const [cryptoResults, setCryptoResults] = useState<Result[]>([]);
+  const [cryptoRunning, setCryptoRunning] = useState(false);
+
+  /**
+   * Runs the published crypto vectors against native libsodium.
+   *
+   * CI runs them against the WASM build, which Hermes cannot load. If the two
+   * disagree, backups written on a phone are unopenable on the web — and
+   * nothing else in the project would catch it.
+   */
+  const runCrypto = async (): Promise<void> => {
+    setCryptoRunning(true);
+    setCryptoResults([]);
+
+    const collected: Result[] = [];
+    try {
+      const backend = await createNativeSodiumBackend();
+
+      for (const vector of CRYPTO_VECTORS) {
+        try {
+          vector.run(backend);
+          collected.push({ name: vector.name, passed: true });
+        } catch (error) {
+          collected.push({
+            name: vector.name,
+            passed: false,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        setCryptoResults([...collected]);
+      }
+    } catch (error) {
+      collected.push({
+        name: 'load native libsodium',
+        passed: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      setCryptoResults([...collected]);
+    }
+
+    setCryptoRunning(false);
+  };
 
   /**
    * Runs the real OCR engine over a known receipt and reports what the tier-2
@@ -151,6 +195,31 @@ export default function DiagnosticsScreen(): ReactNode {
             : `${String(failed)} of ${String(results.length)} failed`}
         </Text>
       )}
+
+      <Pressable style={styles.button} onPress={() => void runCrypto()} disabled={cryptoRunning}>
+        <Text style={styles.buttonText}>
+          {cryptoRunning ? 'Checking…' : 'Run crypto vectors'}
+        </Text>
+      </Pressable>
+
+      {cryptoResults.length > 0 && (
+        <Text
+          style={[text.heading, cryptoResults.some((r) => !r.passed) ? styles.fail : styles.pass]}
+        >
+          {cryptoResults.every((r) => r.passed)
+            ? `All ${String(cryptoResults.length)} crypto vectors passed`
+            : `${String(cryptoResults.filter((r) => !r.passed).length)} crypto vectors FAILED`}
+        </Text>
+      )}
+
+      {cryptoResults
+        .filter((result) => !result.passed)
+        .map((result) => (
+          <View key={result.name} style={styles.row}>
+            <Text style={styles.fail}>✗ {result.name}</Text>
+            {result.error !== undefined && <Text style={styles.errorText}>{result.error}</Text>}
+          </View>
+        ))}
 
       <Pressable style={styles.button} onPress={() => void runOcr()} disabled={ocrRunning}>
         <Text style={styles.buttonText}>{ocrRunning ? 'Reading…' : 'Run OCR on a known receipt'}</Text>

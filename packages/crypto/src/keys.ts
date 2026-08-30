@@ -80,7 +80,7 @@ export function deriveKek(
 
   // HKDF after Argon2id so the KEK is domain-separated from anything else ever
   // derived from the same password.
-  return hkdf(sodium, stretched, salt, INFO_KEK, SIZES.aeadKey);
+  return hkdf(stretched, salt, INFO_KEK, SIZES.aeadKey);
 }
 
 export function generateBmk(sodium: SodiumBackend): Uint8Array {
