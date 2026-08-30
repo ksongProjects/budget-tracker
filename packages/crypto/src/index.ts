@@ -1,5 +1,10 @@
 /**
- * @budget/crypto — scaffold only. Filled in by later phases; see
- * docs/implementation-plan.md.
+ * @budget/crypto — protects what leaves the device. See docs/crypto-design.md.
+ *
+ * Backends are separate entry points: CI runs libsodium-wrappers under Node,
+ * React Native needs react-native-libsodium. Both are held to CRYPTO_VECTORS.
  */
-export const PACKAGE_NAME = '@budget/crypto';
+export * from './backend.js';
+export * from './hkdf.js';
+export * from './keys.js';
+export * from './vectors.js';

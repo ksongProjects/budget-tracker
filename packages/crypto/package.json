@@ -13,5 +13,11 @@
   },
   "scripts": {
     "build": "tsc --build"
+  },
+  "dependencies": {
+    "libsodium-wrappers-sumo": "^0.8.4"
+  },
+  "devDependencies": {
+    "@types/libsodium-wrappers-sumo": "^0.8.2"
   }
 }
