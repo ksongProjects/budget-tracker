@@ -13,3 +13,5 @@ export * from './statement/layout.js';
 export * from './statement/rows.js';
 export * from './statement/dedupe.js';
 export * from './statement/rules.js';
+export * from './voice/utterance.js';
+export * from './voice/utterances.js';
