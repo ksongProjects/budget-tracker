@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CurrencySchema } from '@budget/schema';
 import { amountsIn, extractReceipt } from './receipt.js';
 import type { OcrResult } from './types.js';
 
@@ -128,13 +129,19 @@ describe('tax and tip', () => {
 });
 
 describe('currency', () => {
-  it('reads the symbol', () => {
-    expect(extractReceipt(ocr('TOTAL $12.34')).currency?.value).toBe('USD');
-    expect(extractReceipt(ocr('TOTAL £12.34')).currency?.value).toBe('GBP');
-    expect(extractReceipt(ocr('TOTAL €12.34')).currency?.value).toBe('EUR');
+  it('reads a code the receipt actually prints', () => {
+    expect(extractReceipt(ocr('SUMME EUR 12,34')).currency?.value).toBe('EUR');
+    expect(extractReceipt(ocr('TOTAL CAD 12.34')).currency?.value).toBe('CAD');
   });
 
-  it('proposes none when no symbol is printed', () => {
+  it('ignores the symbol, which names no country', () => {
+    // A dollar sign is printed by a dozen currencies. Reading it as USD put a
+    // confidently wrong number in a Canadian ledger, which is how this rule
+    // came to exist.
+    expect(extractReceipt(ocr('TOTAL $12.34')).currency).toBeUndefined();
+  });
+
+  it('proposes none when nothing states one and no default is given', () => {
     expect(extractReceipt(ocr('TOTAL 12.34')).currency).toBeUndefined();
   });
 });
@@ -241,7 +248,7 @@ describe('a whole receipt', () => {
 
     expect(result.total?.value).toBe(1060);
     expect(result.tax?.value).toBe(85);
-    expect(result.currency?.value).toBe('USD');
+    expect(result.currency).toBeUndefined();
     expect(result.merchant?.value).toBe('BLUE BOTTLE COFFEE');
     expect(result.cardLast4?.value).toBe('4242');
 
@@ -255,5 +262,52 @@ describe('a whole receipt', () => {
     expect(result.total?.value).toBe(700);
     expect(result.cardLast4).toBeUndefined();
     expect(result.tax).toBeUndefined();
+  });
+});
+
+/**
+ * Currency comes from what the receipt says, or from the user.
+ *
+ * Reported from a real phone in Canada: `$12.50` came back as USD, because the
+ * symbol table had one answer for `$`. Reading the receipt harder would not
+ * have helped — the symbol carries no country. So symbols are not read at all,
+ * and what fills the gap is the currency the user records in, marked as an
+ * assumption they can change.
+ */
+describe('currency without a symbol table', () => {
+  const receipt = (text: string): OcrResult => ({
+    lines: [{ text: 'CAFE' }, { text }],
+    engine: 'test',
+    durationMs: 0,
+  });
+
+  const CAD = CurrencySchema.parse('CAD');
+  const EUR = CurrencySchema.parse('EUR');
+
+  it('uses the currency the user records in when nothing states one', () => {
+    const found = extractReceipt(receipt('TOTAL $12.50'), { defaultCurrency: CAD }).currency;
+
+    expect(found?.value).toBe(CAD);
+    expect(found?.evidence).toMatch(/not printed/i);
+  });
+
+  it('marks that as an assumption rather than a reading', () => {
+    const assumed = extractReceipt(receipt('TOTAL $12.50'), { defaultCurrency: CAD }).currency;
+    const stated = extractReceipt(receipt('TOTAL EUR 12.50'), { defaultCurrency: CAD }).currency;
+
+    expect(assumed?.confidence).toBeLessThan(stated?.confidence ?? 1);
+  });
+
+  it('lets a printed code beat the default', () => {
+    // The one thing that overrides the user's own currency is the receipt
+    // saying otherwise in words.
+    expect(extractReceipt(receipt('TOTAL EUR 12,50'), { defaultCurrency: CAD }).currency?.value).toBe(
+      EUR,
+    );
+  });
+
+  it('never invents a currency from a symbol, whatever the default', () => {
+    expect(extractReceipt(receipt('TOTAL $12.50')).currency).toBeUndefined();
+    expect(extractReceipt(receipt('TOTAL €12,50')).currency).toBeUndefined();
   });
 });

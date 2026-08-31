@@ -16,7 +16,8 @@ import {
   pressDigit,
   toMinorUnits,
 } from '../src/lib/amount-entry';
-import { colors, radius, spacing, text } from '../src/ui/theme';
+import { CurrencyField } from '../src/ui/currency-field';
+import { colors, radius, spacing } from '../src/ui/theme';
 
 
 const KEYPAD = [
@@ -110,7 +111,14 @@ export default function AddScreen(): ReactNode {
     <View style={styles.screen}>
       <View style={styles.amountBlock}>
         <Text style={styles.amountText}>{displayAmount(amount)}</Text>
-        <Text style={text.faint}>{amount.currency}</Text>
+        <CurrencyField
+          value={amount.currency}
+          onChange={(currency) => {
+            // Only the currency changes: the digits already typed are the same
+            // number in whichever currency the user meant them to be.
+            setAmount((current) => ({ ...current, currency }));
+          }}
+        />
       </View>
 
       <TextInput

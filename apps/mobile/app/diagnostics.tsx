@@ -517,7 +517,7 @@ export default function DiagnosticsScreen(): ReactNode {
       const result = await engine.recognize(uri);
       lines.push(`engine ${result.engine}, ${result.lines.length} lines, ${result.durationMs} ms`);
 
-      const candidate = extractReceipt(result);
+      const candidate = extractReceipt(result, { defaultCurrency: DEFAULT_CURRENCY });
       const money = (m: MinorUnits, c: Currency | undefined): string =>
         c ? formatAmount(m, c) : String(m);
 
