@@ -197,7 +197,34 @@ CREATE TRIGGER transactions_fts_update AFTER UPDATE ON transactions BEGIN
 END;
 `;
 
+
+/**
+ * Who is using this copy of the app.
+ *
+ * One row, always. Not an account — there is no server to hold one — but the
+ * app still needs a name to put on an export, an address to mail one to, and
+ * the currency to open the keypad in. Kept in the ledger rather than in device
+ * storage so it travels in a backup: restoring onto a new phone should not ask
+ * someone to introduce themselves again.
+ *
+ * The merge columns are here for the same reason they are on every other table:
+ * two devices restoring the same backup have to converge on one answer.
+ */
+const profile = `
+CREATE TABLE profile (
+  id               TEXT PRIMARY KEY,
+  display_name     TEXT NOT NULL,
+  email            TEXT,
+  default_currency TEXT NOT NULL,
+  rev              INTEGER NOT NULL DEFAULT 0,
+  updated_at       INTEGER NOT NULL,
+  deleted_at       INTEGER,
+  origin_device    TEXT NOT NULL
+);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial', sql: initial },
   { version: 2, name: 'search', sql: search },
+  { version: 3, name: 'profile', sql: profile },
 ];

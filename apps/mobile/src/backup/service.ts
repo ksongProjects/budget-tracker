@@ -48,6 +48,7 @@ const SCHEDULED_RUN_FILE = 'last-scheduled-run.json';
 
 /** Tables a backup carries, in the order Merge expects. */
 const BACKUP_TABLES = [
+  'profile',
   'merchants',
   'merchant_aliases',
   'categories',

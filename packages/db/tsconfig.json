@@ -13,6 +13,9 @@
   "references": [
     {
       "path": "../schema"
+    },
+    {
+      "path": "../extract"
     }
   ]
 }

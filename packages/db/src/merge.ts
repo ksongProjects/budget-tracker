@@ -63,6 +63,9 @@ export interface MergeTable {
 
 /** The tables a backup carries, in foreign-key order so inserts never dangle. */
 export const MERGE_TABLES: readonly MergeTable[] = [
+  // The profile travels with the ledger: restoring onto a new phone should not
+  // ask someone to introduce themselves again.
+  { name: 'profile', key: 'id' },
   { name: 'merchants', key: 'id' },
   { name: 'merchant_aliases', key: 'alias' },
   { name: 'categories', key: 'id' },

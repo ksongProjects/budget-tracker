@@ -15,6 +15,8 @@ export * from './accounts.js';
 export * from './driver-contract.js';
 export * from './tombstones.js';
 export * from './merchants.js';
+export * from './profile.js';
+export * from './statements.js';
 export type { Migration } from './migrations.js';
 export { MIGRATIONS } from './migrations.js';
 export * from './merge.js';

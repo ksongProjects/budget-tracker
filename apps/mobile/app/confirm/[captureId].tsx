@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { CurrencySchema, formatAmount, now } from '@budget/schema';
+import { formatAmount, now } from '@budget/schema';
 import type { CaptureId } from '@budget/schema';
 import { extractReceipt } from '@budget/extract';
 import type { CandidateTransaction, StructuredCandidate } from '@budget/extract';
 import { assistOffer, runAssist, textToSend } from '../../src/llm/assist';
 import type { AssistOffer } from '../../src/llm/assist';
 import { useLedger } from '../../src/db/provider';
+import { useDefaultCurrency } from '../../src/profile/context';
 import { documentPath } from '../../src/capture/documents';
 import { loadOcrEngine } from '../../src/capture/ocr';
 import {
@@ -22,7 +23,6 @@ import {
 } from '../../src/lib/amount-entry';
 import { colors, radius, spacing, text } from '../../src/ui/theme';
 
-const DEFAULT_CURRENCY = CurrencySchema.parse('USD');
 
 const KEYPAD = [
   ['1', '2', '3'],
@@ -45,6 +45,10 @@ export default function ConfirmScreen(): ReactNode {
   const { captureId } = useLocalSearchParams<{ captureId: string }>();
   const ledger = useLedger();
   const router = useRouter();
+
+  // The user's own currency, not a constant: a receipt that names none is far
+  // more likely to be in the currency they record in than in dollars.
+  const DEFAULT_CURRENCY = useDefaultCurrency();
 
   const [status, setStatus] = useState<Status>('reading');
   const [candidate, setCandidate] = useState<CandidateTransaction>({});

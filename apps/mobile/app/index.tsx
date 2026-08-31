@@ -14,6 +14,9 @@ import type { BackupVerdict } from '../src/backup/health';
 import { hasKeyMaterial } from '../src/backup/keys';
 import { lastBackupAt } from '../src/backup/service';
 import { cloudStatus } from '../src/cloud/sync';
+import { CaptureMenu } from '../src/ui/capture-menu';
+import { FilterBar, NO_FILTERS, isFiltered, periodStart } from '../src/ui/filters';
+import type { Filters } from '../src/ui/filters';
 import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
 
 const PAGE_SIZE = 50;
@@ -28,6 +31,7 @@ export default function LedgerScreen(): ReactNode {
 
   const router = useRouter();
   const [version, setVersion] = useState(0);
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
 
   // Writes happen on other screens; refresh on focus rather than wiring a
   // subscription layer this app is too small to need.
@@ -37,9 +41,30 @@ export default function LedgerScreen(): ReactNode {
     }, []),
   );
 
+  // Search and filters go to the database rather than to the page already
+  // loaded: a filter that only searches the newest fifty rows is a filter that
+  // lies, and it lies most on the ledgers that most need one.
+  const query = filters.query.trim();
   const { data, loading, error } = useQuery(
-    (l) => l.transactions.list({ limit: PAGE_SIZE }),
-    [],
+    async (l) => {
+      const from = periodStart(filters.period, Date.now());
+
+      if (query !== '') {
+        const found = await l.transactions.search(query, PAGE_SIZE);
+        return found.filter(
+          (row) =>
+            (from === undefined || row.occurredAt >= from) &&
+            (filters.status === 'all' || row.confirmedAt === null),
+        );
+      }
+
+      return l.transactions.list({
+        limit: PAGE_SIZE,
+        ...(from === undefined ? {} : { from }),
+        ...(filters.status === 'pending' ? { confirmed: false } : {}),
+      });
+    },
+    [query, filters.period, filters.status],
     version,
   );
 
@@ -54,7 +79,7 @@ export default function LedgerScreen(): ReactNode {
     return <Centered message={error.message} />;
   }
 
-  if (!loading && rows.length === 0) {
+  if (!loading && rows.length === 0 && !isFiltered(filters)) {
     // Every way in, not just the typed one. The capture buttons live on the
     // list, so an empty ledger used to offer a keypad and nothing else — which
     // hid the camera and the microphone from exactly the person who has never
@@ -88,6 +113,22 @@ export default function LedgerScreen(): ReactNode {
   return (
     <View style={styles.screen}>
       <BackupNudge verdict={backup} />
+      <FilterBar value={filters} onChange={setFilters} />
+
+      {!loading && rows.length === 0 && (
+        <View style={styles.noMatches}>
+          <Text style={text.muted}>Nothing matches those filters.</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setFilters(NO_FILTERS);
+            }}
+          >
+            <Text style={styles.clear}>Clear them</Text>
+          </Pressable>
+        </View>
+      )}
+
       <FlashList
         data={rows}
         keyExtractor={(row) => row.key}
@@ -107,23 +148,7 @@ export default function LedgerScreen(): ReactNode {
         contentContainerStyle={styles.listContent}
       />
 
-      <View style={styles.fabRow}>
-        <Link href="/add" asChild>
-          <Pressable accessibilityRole="button" style={styles.fabSecondary} accessibilityLabel="Type a spend">
-            <Text style={styles.fabSecondaryText}>+</Text>
-          </Pressable>
-        </Link>
-        <Link href="/voice" asChild>
-          <Pressable accessibilityRole="button" style={styles.fabSecondary} accessibilityLabel="Say a spend">
-            <Text style={styles.fabSecondaryText}>🎙</Text>
-          </Pressable>
-        </Link>
-        <Link href="/capture" asChild>
-          <Pressable accessibilityRole="button" style={styles.fab} accessibilityLabel="Photograph a receipt">
-            <Text style={styles.fabText}>◉</Text>
-          </Pressable>
-        </Link>
-      </View>
+      <CaptureMenu />
     </View>
   );
 }
@@ -288,6 +313,8 @@ const styles = StyleSheet.create({
   nudgeAction: { color: colors.accent, fontWeight: '600' },
   screen: { flex: 1, backgroundColor: colors.background },
   listContent: { paddingBottom: spacing.xl * 3 },
+  noMatches: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.lg },
+  clear: { color: colors.accent, fontWeight: '600' },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -342,30 +369,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryButtonText: { color: colors.text, fontWeight: '600', fontSize: 16 },
-  fabRow: {
-    position: 'absolute',
-    right: spacing.lg,
-    bottom: spacing.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  fab: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fabText: { color: colors.accentText, fontSize: 28, lineHeight: 32, fontWeight: '600' },
-  fabSecondary: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.surfaceRaised,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fabSecondaryText: { color: colors.text, fontSize: 26, lineHeight: 30, fontWeight: '600' },
 });

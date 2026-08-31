@@ -19,6 +19,7 @@
     "build": "tsc --build"
   },
   "dependencies": {
+    "@budget/extract": "workspace:*",
     "@budget/schema": "workspace:*"
   }
 }
