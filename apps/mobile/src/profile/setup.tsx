@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CurrencySchema } from '@budget/schema';
 import type { Currency } from '@budget/schema';
 import { looksLikeEmail } from '@budget/db';
@@ -21,6 +31,9 @@ import { useProfileState } from './context';
  */
 export function ProfileSetup(): ReactNode {
   const { save } = useProfileState();
+  // This screen renders outside the navigator — it is what stands in for it —
+  // so nothing else is holding it clear of the status bar and the gesture area.
+  const insets = useSafeAreaInsets();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -48,7 +61,13 @@ export function ProfileSetup(): ReactNode {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={text.title}>TXNS</Text>
         <Text style={text.body}>
           A spending tracker that keeps your records on this phone. There is no account and no
@@ -121,7 +140,7 @@ export function ProfileSetup(): ReactNode {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl },
+  content: { paddingHorizontal: spacing.lg, gap: spacing.lg },
   field: { gap: spacing.xs },
   input: {
     backgroundColor: colors.surface,

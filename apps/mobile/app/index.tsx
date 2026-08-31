@@ -106,6 +106,11 @@ export default function LedgerScreen(): ReactNode {
             <Text style={styles.secondaryButtonText}>Type a spend</Text>
           </Pressable>
         </Link>
+        <Link href="/import" asChild>
+          <Pressable accessibilityRole="button" style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Import a statement</Text>
+          </Pressable>
+        </Link>
       </View>
     );
   }

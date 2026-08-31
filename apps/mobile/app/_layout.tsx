@@ -5,6 +5,7 @@
 import 'react-native-get-random-values';
 import { Link, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
@@ -17,12 +18,16 @@ import { colors, spacing, text } from '../src/ui/theme';
 
 export default function RootLayout(): ReactNode {
   return (
-    <LedgerProvider>
-      <ProfileProvider>
-        <StatusBar style="light" />
-        <LedgerGate />
-      </ProfileProvider>
-    </LedgerProvider>
+    // The setup screen renders in place of the navigator, so it cannot rely on
+    // the one expo-router installs around a Stack.
+    <SafeAreaProvider>
+      <LedgerProvider>
+        <ProfileProvider>
+          <StatusBar style="light" />
+          <LedgerGate />
+        </ProfileProvider>
+      </LedgerProvider>
+    </SafeAreaProvider>
   );
 }
 
