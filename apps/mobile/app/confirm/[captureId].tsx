@@ -21,6 +21,7 @@ import {
   pressDigit,
   toMinorUnits,
 } from '../../src/lib/amount-entry';
+import { CurrencyField } from '../../src/ui/currency-field';
 import { colors, radius, spacing, text } from '../../src/ui/theme';
 
 
@@ -90,7 +91,7 @@ export default function ConfirmScreen(): ReactNode {
         const result = await engine.recognize(path);
         if (cancelled()) return;
 
-        const proposed = extractReceipt(result);
+        const proposed = extractReceipt(result, { defaultCurrency: DEFAULT_CURRENCY });
         setCandidate(proposed);
         setReceiptText(result.lines.map((line) => line.text).join('\n'));
 
@@ -205,7 +206,17 @@ export default function ConfirmScreen(): ReactNode {
 
       <View style={styles.amountBlock}>
         <Text style={styles.amountText}>{displayAmount(amount)}</Text>
-        <Text style={text.faint}>{amount.currency}</Text>
+        <CurrencyField
+          value={amount.currency}
+          onChange={(currency) => {
+            setAmount((current) => ({ ...current, currency }));
+          }}
+          note={
+            candidate.currency === undefined || candidate.currency.confidence < 0.5
+              ? 'Your default — this receipt does not say which currency.'
+              : `Printed on the receipt: ${candidate.currency.evidence}`
+          }
+        />
         {candidate.total && (
           <Confidence
             label={

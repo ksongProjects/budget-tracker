@@ -76,13 +76,18 @@ export function applyRules(request: StructuringRequest): StructuredCandidate {
           defaultCurrency: request.defaultCurrency,
           now: request.now,
         })
-      : extractReceipt({
-          // The rules read lines; text from a PDF or a transcript arrives as
-          // lines already, and OCR output was lines before it was joined.
-          lines: request.text.split('\n').map((text) => ({ text })),
-          engine: 'text',
-          durationMs: 0,
-        });
+      : extractReceipt(
+          {
+            // The rules read lines; text from a PDF or a transcript arrives as
+            // lines already, and OCR output was lines before it was joined.
+            lines: request.text.split('\n').map((text) => ({ text })),
+            engine: 'text',
+            durationMs: 0,
+          },
+          // So a `$` on a receipt reads as the currency this user records in,
+          // rather than as US dollars in every dollar-using country.
+          { defaultCurrency: request.defaultCurrency },
+        );
 
   return {
     ...candidate,

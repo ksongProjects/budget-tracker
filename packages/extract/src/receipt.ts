@@ -38,12 +38,16 @@ const TIP_LABEL = /\b(tip|gratuity)\b/i;
  */
 const AMOUNT = /(?:([$€£¥])\s*)?(\d{1,3}(?:[,\s]\d{3})*|\d+)([.,]\d{2})(?!\d)/g;
 
-const SYMBOL_CURRENCIES: Readonly<Record<string, string>> = {
-  $: 'USD',
-  '€': 'EUR',
-  '£': 'GBP',
-  '¥': 'JPY',
-};
+/**
+ * Currency is read only where the receipt says it in words.
+ *
+ * Symbols are not statements. A dollar sign is printed by Canada, Australia,
+ * New Zealand, Singapore, Hong Kong and a dozen more, and reading it as US
+ * dollars puts a confidently wrong number in the ledger of everyone else — the
+ * failure a phone in Canada found. The symbol carries no country, so it is not
+ * asked for one; when nothing states a currency, the caller's own is used and
+ * the screen lets the user change it.
+ */
 
 /** Card last-4 as printed: masks, then four digits. Never the full number. */
 const CARD_LAST4 = /(?:[*x#•]{2,}\s*|ending\s+(?:in\s+)?|xxxx\s*)(\d{4})\b/i;
@@ -130,7 +134,18 @@ export function mergeColumns(lines: readonly OcrLine[]): OcrLine[] {
   return merged;
 }
 
-export function extractReceipt(ocr: OcrResult): CandidateTransaction {
+export interface ReceiptOptions {
+  /**
+   * What the user records in. Used to read an ambiguous symbol — never to
+   * override one the receipt states outright.
+   */
+  readonly defaultCurrency?: Currency;
+}
+
+export function extractReceipt(
+  ocr: OcrResult,
+  options: ReceiptOptions = {},
+): CandidateTransaction {
   const lines = mergeColumns(ocr.lines).filter((line) => line.text.trim() !== '');
 
   const total = findTotal(lines);
@@ -146,7 +161,7 @@ export function extractReceipt(ocr: OcrResult): CandidateTransaction {
   const tip = findLabelled(lines, TIP_LABEL, 0.8);
   if (tip) candidate.tip = tip;
 
-  const currency = findCurrency(lines);
+  const currency = findCurrency(lines, options.defaultCurrency);
   if (currency) candidate.currency = currency;
 
   const occurredAt = findDate(lines);
@@ -256,22 +271,14 @@ export function amountsIn(text: string): MinorUnits[] {
   return found;
 }
 
-function findCurrency(lines: readonly OcrLine[]): Candidate<Currency> | undefined {
-  for (const line of lines) {
-    for (const [symbol, code] of Object.entries(SYMBOL_CURRENCIES)) {
-      if (line.text.includes(symbol)) {
-        return {
-          value: CurrencySchema.parse(code),
-          confidence: 0.7,
-          evidence: line.text.trim(),
-        };
-      }
-    }
-  }
+function findCurrency(
+  lines: readonly OcrLine[],
+  fallback: Currency | undefined,
+): Candidate<Currency> | undefined {
 
-  // Outside the symbol currencies, receipts print the code instead: "SUMME EUR
-  // 6,00". Read only where an amount shares the line, so an address in
-  // "CHF-strasse" or a product code is not mistaken for the currency.
+  // A three-letter code is a statement: "SUMME EUR 6,00". Read only where an
+  // amount shares the line, so an address on "CHF-strasse" or a product code is
+  // not mistaken for the currency.
   for (const line of lines) {
     const code = CODE_IN_LINE.exec(line.text);
     if (code?.[1] !== undefined && AMOUNT_ON_LINE.test(line.text)) {
@@ -283,10 +290,15 @@ function findCurrency(lines: readonly OcrLine[]): Candidate<Currency> | undefine
     }
   }
 
-  return undefined;
+  // Nothing stated it. The caller's own currency, at a confidence that says
+  // the receipt did not say so — which is what makes the screen show it as
+  // something to check rather than something read.
+  return fallback === undefined
+    ? undefined
+    : { value: fallback, confidence: 0.3, evidence: 'not printed — your default' };
 }
 
-/** ISO codes common enough on a receipt to be worth reading, symbols aside. */
+/** ISO codes common enough to appear on a receipt. */
 const CODE_IN_LINE = /\b(USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|SEK|NOK|DKK|PLN|CZK)\b/i;
 const AMOUNT_ON_LINE = /\d+[.,]\d{2}\b/;
 
