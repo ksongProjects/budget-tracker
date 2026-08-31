@@ -136,6 +136,25 @@ for exactly what to create.
   running total, which is one more reason it is a per-capture tap rather than a
   setting.
 
+## Release
+
+- **No iOS build has ever run.** Not a port that needs polish — an untested one.
+  whisper.rn, expo-sqlite, react-native-libsodium and the PCM recorder each have
+  an iOS path this project has never executed, and there has never been a Mac in
+  it.
+- **Every benchmark is an emulator number.** The plan says to measure on cheap
+  hardware; an x86 emulator is neither cheap hardware nor a phone. The one budget
+  currently missed — shutter to provisional total, 532 ms against 500 — is
+  477 ms of ML Kit and 1 ms of our own code, and may not be a miss at all on a
+  device with an NPU.
+- **No support URL and no privacy policy.** Both stores require them; neither
+  exists. The policy has to say in public what docs/release/privacy.md says.
+- **No store accounts and no signing keys.** Including an Android upload key,
+  whose loss would mean a new listing.
+- **No crash reporting, deliberately.** It keeps the privacy labels true and it
+  means the first release's failures arrive as store reviews rather than stack
+  traces.
+
 ## Testing
 
 - **The frozen v1 archive fixture is not a real SQLite file.** It holds marker
