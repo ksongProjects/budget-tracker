@@ -96,6 +96,24 @@ for exactly what to create.
   a column — right for the common case, wrong for statements that use ruled
   boxes or wrap a description across lines.
 
+## Voice
+
+- **No physical device has heard this.** The emulator's microphone is silence,
+  so the pipeline is proven — record, encode, transcribe, parse — and the
+  accuracy is not. A phone run is the cheapest next check and would produce the
+  first real word error rate.
+- **Only English.** Transcription is pinned to it because the parser reads
+  English number words. Another language needs both halves changed together.
+- **The PCM recorder is an old-architecture native module.** It reaches the app
+  through React Native's interop layer; a release that drops that layer takes
+  voice capture with it.
+- **`whisper.rn` resolves only as `whisper.rn/index`.** Its export map declares
+  no "." entry, so the bare specifier fails and a tsconfig path points
+  TypeScript at the shipped declarations. Both revert when upstream fixes it.
+- **A spoken merchant loses its branch number.** The merchant phrase stops at
+  the first number, which is right when the amount follows the name — "at
+  Tartine, eighteen fifty" — and wrong for "at Safeway 0421".
+
 ## Testing
 
 - **The frozen v1 archive fixture is not a real SQLite file.** It holds marker
