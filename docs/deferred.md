@@ -79,6 +79,23 @@ for exactly what to create.
 - **No management screens** for accounts, categories or merchants. Rows carry
   those columns and imports will populate them; nothing edits them yet.
 
+## Statements
+
+- **No rule set has met a real statement.** The two that ship are synthetic
+  examples proving the format; the fixtures are layouts with invented amounts,
+  because real statements are personal documents and the corpus is gitignored.
+  The first real file will likely need a third rule set and find something in
+  the layout code.
+- **Scanned PDFs are not read.** There is no text layer in an image, and OCR for
+  PDFs is Tier 2 work this phase did not take on. The screen says so rather than
+  showing an empty table.
+- **Statement import is web-only.** The phone has no import screen; rows reach it
+  through a backup. Nothing about the parsing is web-specific, so the work is a
+  screen rather than a pipeline.
+- **Column detection assumes a tabular layout.** A gap recurring on most lines is
+  a column — right for the common case, wrong for statements that use ruled
+  boxes or wrap a description across lines.
+
 ## Testing
 
 - **The frozen v1 archive fixture is not a real SQLite file.** It holds marker

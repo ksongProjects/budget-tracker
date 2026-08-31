@@ -1,8 +1,26 @@
 import { CurrencySchema, formatAmount } from '@budget/schema';
 import type { Currency } from '@budget/schema';
 import type { RepositoryContext } from '@budget/db';
-import { guessMapping, isComplete, parseCsv, tableOfDocument } from '@budget/extract';
+import {
+  guessMapping,
+  isComplete,
+  matchRuleSet,
+  parseCsv,
+  provenanceOf,
+  readWithRuleSet,
+  tableOfDocument,
+} from '@budget/extract';
 import type { ColumnMapping, CsvTable, DateOrder } from '@budget/extract';
+
+/** What a chosen file turned into, plus anything a rule set already decided. */
+interface LoadedFile {
+  readonly table: CsvTable;
+  readonly mapping?: ColumnMapping;
+  readonly dateOrder?: DateOrder;
+  readonly currency?: string;
+  readonly debitsArePositive?: boolean;
+  readonly recognised?: string;
+}
 
 /** A PDF by declared type or by extension; browsers disagree about the former. */
 function isPdf(file: File): boolean {
@@ -35,6 +53,8 @@ interface State {
   /** Cleared whenever a setting changes, so a stale preview is never acted on. */
   preview: ImportPreview | undefined;
   error: string | undefined;
+  /** Which bank's rule set read this file, when one recognised it. */
+  recognised: string | undefined;
 }
 
 export function statementView(
@@ -45,6 +65,7 @@ export function statementView(
     table: undefined,
     preview: undefined,
     error: undefined,
+    recognised: undefined,
     mapping: {},
     dateOrder: 'ymd',
     currency: CurrencySchema.parse('USD'),
@@ -68,9 +89,19 @@ export function statementView(
     if (chosen === undefined) return;
 
     void load(chosen).then(
-      (table) => {
-        state.table = table;
-        state.mapping = guessMapping(table.header);
+      (loaded) => {
+        state.table = loaded.table;
+        state.mapping = loaded.mapping ?? guessMapping(loaded.table.header);
+        if (loaded.dateOrder !== undefined) state.dateOrder = loaded.dateOrder;
+        if (loaded.currency !== undefined) {
+          const parsed = CurrencySchema.safeParse(loaded.currency);
+          if (parsed.success) state.currency = parsed.data;
+        }
+        if (loaded.debitsArePositive !== undefined) {
+          state.debitsArePositive = loaded.debitsArePositive;
+        }
+
+        state.recognised = loaded.recognised;
         state.preview = undefined;
         state.error = undefined;
         draw();
@@ -87,16 +118,34 @@ export function statementView(
    * A CSV is already a table; a PDF is glyphs at coordinates and has to be made
    * into one. Both end up in the same shape, so everything after this point is
    * the same code for either.
+   *
+   * A PDF from a bank with a rule set arrives with its columns and conventions
+   * already decided. That is a starting point, not a verdict: the settings stay
+   * editable and the preview still has to be looked at.
    */
-  async function load(chosen: File): Promise<CsvTable> {
-    if (!isPdf(chosen)) return parseCsv(await chosen.text());
+  async function load(chosen: File): Promise<LoadedFile> {
+    if (!isPdf(chosen)) return { table: parseCsv(await chosen.text()) };
 
-    // pdf.js is a third of a megabyte and only matters to someone opening a
-    // PDF, so it arrives when one does.
+    // pdf.js is most of a megabyte and only matters to someone opening a PDF,
+    // so it arrives when one does.
     const { pdfTextEngine } = await import('./pdf');
     const document = await pdfTextEngine.extract(new Uint8Array(await chosen.arrayBuffer()));
-    const table = tableOfDocument(document);
 
+    const ruleSet = matchRuleSet(document);
+    const reading = ruleSet === undefined ? undefined : readWithRuleSet(document, ruleSet);
+
+    if (reading !== undefined) {
+      return {
+        table: reading.table,
+        mapping: reading.mapping,
+        dateOrder: reading.dateOrder,
+        ...(reading.currency === undefined ? {} : { currency: reading.currency }),
+        debitsArePositive: reading.debitsArePositive,
+        recognised: `${reading.ruleSet.label} (${provenanceOf(reading.ruleSet)})`,
+      };
+    }
+
+    const table = tableOfDocument(document);
     if (table.header.length === 0) {
       // A scanned statement is an image with no text layer. Saying so beats an
       // empty screen, and it is the honest boundary of Tier 1.
@@ -106,7 +155,7 @@ export function statementView(
       );
     }
 
-    return table;
+    return { table };
   }
 
   section.append(
@@ -132,6 +181,14 @@ export function statementView(
 
     const table = state.table;
     if (table === undefined) return;
+
+    if (state.recognised !== undefined) {
+      // Named, and with its version, so a wrong import can be traced to the
+      // rule that produced it rather than argued about.
+      const recognised = paragraph(`Read as a ${state.recognised} statement.`);
+      recognised.id = 'statement-recognised';
+      body.append(recognised);
+    }
 
     body.append(headingOf('Which column is which'));
     for (const [field, label] of [

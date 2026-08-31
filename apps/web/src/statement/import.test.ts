@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { start } from '../app';
 import type { Session } from '../app';
+import { RECOGNISED_STATEMENT, buildPdf } from './pdf-fixture';
+import type { FixtureCell } from './pdf-fixture';
 
 /**
  * Importing a statement, driven through the screen.
@@ -175,6 +177,51 @@ describe('mapping a file', () => {
     expect(text('#statement-problems')).toContain('Line 3');
   });
 });
+
+describe('a PDF from a bank we know', () => {
+  function choosePdf(cells: readonly FixtureCell[]): void {
+    const input = field('#statement-file');
+    const data = new DataTransfer();
+
+    data.items.add(
+      new File([buildPdf(cells) as BlobPart], 'statement.pdf', { type: 'application/pdf' }),
+    );
+    input.files = data.files;
+    input.dispatchEvent(new Event('change'));
+  }
+
+  it('says which bank it recognised, and needs no configuring', async () => {
+    await go('import');
+    choosePdf(RECOGNISED_STATEMENT);
+
+    await waitFor(() => root.querySelector('#statement-recognised') !== null);
+    expect(text('#statement-recognised')).toContain('First National Bank');
+    // The version is part of it: a wrong import should be traceable to a rule,
+    // not argued about.
+    expect(text('#statement-recognised')).toContain('@1');
+
+    field('#statement-preview').click();
+    await waitFor(() => root.querySelector('#statement-preview-result') !== null);
+    expect(text('#statement-preview-result')).toContain('3 to import');
+
+    field('#statement-import').click();
+    await waitFor(() => root.querySelector('#pending') !== null);
+
+    await go('ledger');
+    expect(text('#ledger')).toContain('BLUE BOTTLE COFFEE');
+    expect(text('#ledger')).toContain('4.50 USD');
+  });
+
+  it('says so when a PDF carries no text layer', async () => {
+    await go('import');
+    // A valid PDF with nothing written in it — a scan, as far as Tier 1 goes.
+    choosePdf([]);
+
+    await waitFor(() => root.querySelector('#statement-error') !== null);
+    expect(text('#statement-error')).toContain('scanned');
+  });
+});
+
 
 describe('importing', () => {
   it('puts the rows in the ledger, unconfirmed', async () => {
