@@ -22,10 +22,14 @@ const BUDGETS = {
    */
   eagerScriptGzipBytes: 120 * 1024,
   /**
-   * Everything shipped, including the parts loaded on demand. libsodium is most
-   * of the gap, and it is fetched only by someone opening a backup.
+   * Code fetched only when a particular thing is done, and never otherwise.
+   *
+   * Two dependencies account for nearly all of it, both by choice: libsodium
+   * (~183 KB) for opening a backup, and pdf.js (~594 KB, mostly its worker) for
+   * reading a statement's text layer. The alternative to the second is sending
+   * the PDF somewhere to be read, which this app does not do.
    */
-  totalScriptGzipBytes: 300 * 1024,
+  lazyScriptGzipBytes: 850 * 1024,
   /** SQLite itself, which dominates and earns its weight. */
   wasmGzipBytes: 450 * 1024,
 };
@@ -49,21 +53,24 @@ if (!/Content-Security-Policy/i.test(html)) {
 const lazy = lazyChunks();
 
 let eagerGzip = 0;
-let totalGzip = 0;
+let lazyGzip = 0;
 let wasmGzip = 0;
 
 for (const name of walk(DIST)) {
   const gzipped = gzipSync(readFileSync(name)).length;
 
-  if (name.endsWith('.js')) {
-    totalGzip += gzipped;
-    if (!lazy.has(posix(name))) eagerGzip += gzipped;
+  // `.mjs` counts as JavaScript. It did not, once, and pdf.js's 2 MB worker
+  // ships with that extension — so the budget was measuring around the largest
+  // thing in the bundle.
+  if (name.endsWith('.js') || name.endsWith('.mjs')) {
+    if (lazy.has(posix(name))) lazyGzip += gzipped;
+    else eagerGzip += gzipped;
   }
   if (name.endsWith('.wasm')) wasmGzip += gzipped;
 }
 
 report('JavaScript on every visit', eagerGzip, BUDGETS.eagerScriptGzipBytes);
-report('JavaScript in total', totalGzip, BUDGETS.totalScriptGzipBytes);
+report('JavaScript loaded on demand', lazyGzip, BUDGETS.lazyScriptGzipBytes);
 report('WebAssembly', wasmGzip, BUDGETS.wasmGzipBytes);
 
 if (failures.length > 0) {

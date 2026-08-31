@@ -17,7 +17,8 @@
     "@budget/extract": "workspace:*",
     "@budget/report": "workspace:*",
     "@budget/schema": "workspace:*",
-    "@sqlite.org/sqlite-wasm": "^3.50.1-build1"
+    "@sqlite.org/sqlite-wasm": "^3.50.1-build1",
+    "pdfjs-dist": "^6.3.289"
   },
   "devDependencies": {
     "@vitest/browser": "^4.1.11",
