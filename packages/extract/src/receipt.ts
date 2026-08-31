@@ -18,6 +18,10 @@ import type { Candidate, CandidateTransaction, OcrLine, OcrResult } from './type
 const TOTAL_LABELS: readonly { readonly pattern: RegExp; readonly confidence: number }[] = [
   { pattern: /\b(grand\s*total|amount\s*due|balance\s*due|total\s*due)\b/i, confidence: 0.95 },
   { pattern: /\b(total)\b/i, confidence: 0.85 },
+  // The same word in the languages a traveller's receipts are printed in.
+  // Without these a German receipt falls through to the largest amount on it,
+  // which on a dated receipt is the date read as money.
+  { pattern: /\b(summe|gesamt|gesamtbetrag|totale|importe|montant|totaal|suma)\b/i, confidence: 0.85 },
   { pattern: /\b(amount)\b/i, confidence: 0.6 },
 ];
 
@@ -264,8 +268,27 @@ function findCurrency(lines: readonly OcrLine[]): Candidate<Currency> | undefine
       }
     }
   }
+
+  // Outside the symbol currencies, receipts print the code instead: "SUMME EUR
+  // 6,00". Read only where an amount shares the line, so an address in
+  // "CHF-strasse" or a product code is not mistaken for the currency.
+  for (const line of lines) {
+    const code = CODE_IN_LINE.exec(line.text);
+    if (code?.[1] !== undefined && AMOUNT_ON_LINE.test(line.text)) {
+      return {
+        value: CurrencySchema.parse(code[1].toUpperCase()),
+        confidence: 0.75,
+        evidence: line.text.trim(),
+      };
+    }
+  }
+
   return undefined;
 }
+
+/** ISO codes common enough on a receipt to be worth reading, symbols aside. */
+const CODE_IN_LINE = /\b(USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|SEK|NOK|DKK|PLN|CZK)\b/i;
+const AMOUNT_ON_LINE = /\d+[.,]\d{2}\b/;
 
 const DATE_PATTERNS: readonly { readonly pattern: RegExp; readonly order: 'dmy' | 'mdy' | 'ymd' }[] =
   [
