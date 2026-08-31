@@ -4,7 +4,7 @@ import type { ArchiveHeader } from './format.js';
 
 function header(schemaVersion: number): ArchiveHeader {
   return {
-    kdf: { salt: '', opsLimit: 1, memLimitBytes: 1, algorithm: 'argon2id13' },
+    kdf: { salt: '', opsLimit: 1, memLimitBytes: 1, algorithm: 'argon2id' },
     bmkWraps: {
       byPassword: { nonce: '', ciphertext: '' },
       byRecoveryKey: { nonce: '', ciphertext: '' },
@@ -14,7 +14,7 @@ function header(schemaVersion: number): ArchiveHeader {
     createdAt: 0,
     appVersion: '1.0.0',
     schemaVersion,
-  } as ArchiveHeader;
+  };
 }
 
 describe('restoring across app versions', () => {
