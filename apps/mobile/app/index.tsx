@@ -14,7 +14,7 @@ import type { BackupVerdict } from '../src/backup/health';
 import { hasKeyMaterial } from '../src/backup/keys';
 import { lastBackupAt } from '../src/backup/service';
 import { cloudStatus } from '../src/cloud/sync';
-import { colors, radius, spacing, text } from '../src/ui/theme';
+import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
 
 const PAGE_SIZE = 50;
 
@@ -55,15 +55,30 @@ export default function LedgerScreen(): ReactNode {
   }
 
   if (!loading && rows.length === 0) {
+    // Every way in, not just the typed one. The capture buttons live on the
+    // list, so an empty ledger used to offer a keypad and nothing else — which
+    // hid the camera and the microphone from exactly the person who has never
+    // seen them: someone who has just installed the app.
     return (
       <View style={styles.empty}>
         <Text style={text.heading}>Nothing captured yet</Text>
         <Text style={[text.muted, styles.emptyBody]}>
-          Everything you record stays on this device.
+          Photograph a receipt, say what you spent, or type it. Everything you record stays on this
+          device.
         </Text>
-        <Link href="/add" asChild>
+        <Link href="/capture" asChild>
           <Pressable accessibilityRole="button" style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Add a spend</Text>
+            <Text style={styles.primaryButtonText}>Photograph a receipt</Text>
+          </Pressable>
+        </Link>
+        <Link href="/voice" asChild>
+          <Pressable accessibilityRole="button" style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Say a spend</Text>
+          </Pressable>
+        </Link>
+        <Link href="/add" asChild>
+          <Pressable accessibilityRole="button" style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Type a spend</Text>
           </Pressable>
         </Link>
       </View>
@@ -316,6 +331,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   primaryButtonText: { color: colors.accentText, fontWeight: '600', fontSize: 16 },
+  secondaryButton: {
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: MIN_TOUCH_TARGET,
+    justifyContent: 'center',
+  },
+  secondaryButtonText: { color: colors.text, fontWeight: '600', fontSize: 16 },
   fabRow: {
     position: 'absolute',
     right: spacing.lg,
