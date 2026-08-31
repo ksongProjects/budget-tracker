@@ -82,10 +82,10 @@ Only the ledger has navigation to Backup and Export. The rest are reachable by
 deep link:
 
 ```bash
-adb shell am start -a android.intent.action.VIEW -d "budget://backup"
-adb shell am start -a android.intent.action.VIEW -d "budget://export"
-adb shell am start -a android.intent.action.VIEW -d "budget://diagnostics"
-adb shell am start -a android.intent.action.VIEW -d "budget://perf"
+adb shell am start -a android.intent.action.VIEW -d "txns://backup"
+adb shell am start -a android.intent.action.VIEW -d "txns://export"
+adb shell am start -a android.intent.action.VIEW -d "txns://diagnostics"
+adb shell am start -a android.intent.action.VIEW -d "txns://perf"
 ```
 
 `/diagnostics` runs the driver contract, the crypto vectors and an archive

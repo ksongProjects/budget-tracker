@@ -6,7 +6,7 @@ about privacy.
 
 ## Name and subtitle
 
-- **Name**: Budget
+- **Name**: TXNS
 - **Subtitle (iOS, 30 chars)**: Spending, kept on your phone
 - **Short description (Play, 80 chars)**: A spending tracker that keeps your money data on your device, not a server.
 
@@ -14,7 +14,7 @@ about privacy.
 
 > Track what you spend without handing your finances to anyone.
 >
-> Budget keeps your ledger on your phone. Not on our servers — we do not have
+> TXNS keeps your ledger on your phone. Not on our servers — we do not have
 > any. There is no account to create, no sign-in, and no sync service reading
 > your transactions, because there is nothing on the other end to read them.
 >
