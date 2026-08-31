@@ -114,6 +114,28 @@ for exactly what to create.
   the first number, which is right when the amount follows the name — "at
   Tartine, eighteen fifty" — and wrong for "at Safeway 0421".
 
+## Reading with a model
+
+- **No on-device model adapter exists.** Apple Foundation Models needs an iOS 26
+  device and a Mac to build for; Gemini Nano needs AICore on recent Pixel
+  hardware, and an x86 emulator has neither. The seam is
+  `apps/mobile/src/llm/engines.ts`, which returns an empty list today, and the
+  scoring harness will mark whatever it returns. Writing the adapters blind
+  would put unmeasured engines into a suite whose numbers are the point.
+- **So line items need Cloud Assist.** That means a user-supplied key and a tap
+  per capture. Every other field — total, tax, date, merchant — still comes from
+  the rules with no model and no network.
+- **The rules floor of 77% is measured against fixtures we wrote.** Eight
+  invented texts with the shapes that break parsers. A real corpus will move the
+  number, and that is the point of keeping the harness.
+- **Reconciliation has no tolerance.** Items plus tax plus tip must equal the
+  total exactly, so a discount line always reads as unbalanced. Right for now —
+  the gap is shown, not hidden — but a flag that fires on every grocery receipt
+  will stop being read.
+- **Cloud Assist has no cost display.** It spends the user's own quota with no
+  running total, which is one more reason it is a per-capture tap rather than a
+  setting.
+
 ## Testing
 
 - **The frozen v1 archive fixture is not a real SQLite file.** It holds marker
