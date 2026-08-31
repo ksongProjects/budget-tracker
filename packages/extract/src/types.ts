@@ -61,5 +61,27 @@ export interface CandidateTransaction {
   readonly cardLast4?: Candidate<string>;
 }
 
+/** One transcription of a voice note. */
+export interface SpeechResult {
+  readonly text: string;
+  readonly engine: string;
+  readonly durationMs: number;
+  /** Engine confidence 0–1, when reported. */
+  readonly confidence?: number;
+}
+
+/**
+ * What a platform must provide to take part in voice capture.
+ *
+ * On-device by contract, not by convention: the interface takes a local file
+ * and returns text, and there is nowhere in it for a network call to hide.
+ */
+export interface SpeechEngine {
+  readonly name: string;
+  /** Whether the model this engine needs is present on the device. */
+  isReady(): Promise<boolean>;
+  transcribe(audioUri: string): Promise<SpeechResult>;
+}
+
 export const TIERS = [0, 1, 2, 3] as const;
 export type Tier = (typeof TIERS)[number];

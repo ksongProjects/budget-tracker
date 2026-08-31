@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CurrencySchema, now, uuidv7 } from '@budget/schema';
-import type { Category, CategoryId } from '@budget/schema';
+import type { Category, CategoryId, MinorUnits } from '@budget/schema';
 import { useLedger, useQuery } from '../src/db/provider';
 import {
   clearAmount,
   displayAmount,
   emptyAmount,
+  fromMinorUnits,
   isEmpty,
   pressBackspace,
   pressDigit,
@@ -34,8 +35,21 @@ export default function AddScreen(): ReactNode {
   const ledger = useLedger();
   const router = useRouter();
 
-  const [amount, setAmount] = useState(() => emptyAmount(DEFAULT_CURRENCY));
-  const [note, setNote] = useState('');
+  // Voice hands the amount over as minor units rather than as text, so the
+  // keypad starts in the same state it would have reached by being typed —
+  // editable, backspaceable, and not a string to be re-parsed.
+  const spoken = useLocalSearchParams<{ amountMinor?: string; currency?: string; note?: string }>();
+  const spokenCurrency =
+    spoken.currency === undefined
+      ? DEFAULT_CURRENCY
+      : (CurrencySchema.safeParse(spoken.currency).data ?? DEFAULT_CURRENCY);
+
+  const [amount, setAmount] = useState(() =>
+    spoken.amountMinor === undefined
+      ? emptyAmount(DEFAULT_CURRENCY)
+      : fromMinorUnits(Number(spoken.amountMinor) as MinorUnits, spokenCurrency),
+  );
+  const [note, setNote] = useState(spoken.note ?? '');
   const [categoryId, setCategoryId] = useState<CategoryId | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);

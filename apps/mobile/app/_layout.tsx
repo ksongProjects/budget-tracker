@@ -88,6 +88,7 @@ function LedgerGate(): ReactNode {
       <Stack.Screen name="summary" options={{ title: 'Summary' }} />
       <Stack.Screen name="transaction/[id]" options={{ title: 'Spend' }} />
       <Stack.Screen name="capture" options={{ title: 'Photograph receipt' }} />
+      <Stack.Screen name="voice" options={{ title: 'Say a spend' }} />
       <Stack.Screen name="confirm/[captureId]" options={{ title: 'Check the details' }} />
       <Stack.Screen name="backup" options={{ title: 'Backup' }} />
       <Stack.Screen name="export" options={{ title: 'Export' }} />

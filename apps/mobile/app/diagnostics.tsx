@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { Buffer } from 'buffer';
 import { Asset } from 'expo-asset';
+import { AudioModule } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { DRIVER_CONTRACT } from '@budget/db';
@@ -14,7 +16,7 @@ import {
 } from '@budget/crypto';
 import { readArchive, writeArchive } from '@budget/backup';
 import { createNativeSodiumBackend } from '../src/crypto/backend';
-import { extractReceipt } from '@budget/extract';
+import { extractReceipt, readWavHeader } from '@budget/extract';
 import { formatAmount } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
 import { createExpoDriver } from '../src/db/driver';
@@ -24,6 +26,10 @@ import {
   triggerAutoBackupForTesting,
 } from '../src/backup/auto';
 import { lastBackupAt, listBackups, readScheduledRun } from '../src/backup/service';
+import { parseUtterance } from '@budget/extract';
+import { isModelPresent } from '../src/voice/model';
+import { whisperEngine } from '../src/voice/whisper';
+import { discardRecording, startRecording, stopRecording } from '../src/voice/recorder';
 import { loadOcrEngine } from '../src/capture/ocr';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
@@ -54,6 +60,109 @@ export default function DiagnosticsScreen(): ReactNode {
   const [archiveRunning, setArchiveRunning] = useState(false);
   const [scheduleLines, setScheduleLines] = useState<string[]>([]);
   const [scheduleRunning, setScheduleRunning] = useState(false);
+  const [voiceLines, setVoiceLines] = useState<string[]>([]);
+  const [voiceRunning, setVoiceRunning] = useState(false);
+  const [captureLines, setCaptureLines] = useState<string[]>([]);
+  const [captureRunning, setCaptureRunning] = useState(false);
+
+  /**
+   * Transcribe a known recording, rather than whatever the microphone hears.
+   *
+   * The emulator's microphone produces silence, and a person with a real phone
+   * proves accuracy better than any fixture could. What this proves is the part
+   * that cannot be checked any other way: the model loads, the native library
+   * runs, and words come back. Push a 16 kHz mono WAV into the app's own
+   * documents directory first — `/sdcard` needs a storage permission this app
+   * has no reason to hold, and a denied read reaches whisper.rn as an empty
+   * buffer, which it reports as "Invalid WAV file".
+   */
+  const runVoice = async (): Promise<void> => {
+    setVoiceRunning(true);
+    setVoiceLines([]);
+
+    const lines: string[] = [];
+    try {
+      lines.push(`model present: ${String(await isModelPresent())}`);
+
+      const uri = `${FileSystem.documentDirectory ?? ''}voice-test.wav`;
+      lines.push(`fixture: ${String((await FileSystem.getInfoAsync(uri)).exists)}`);
+      const started = Date.now();
+      const spoken = await whisperEngine.transcribe(uri);
+
+      lines.push(`heard: "${spoken.text}"`);
+      lines.push(`took: ${String(Date.now() - started)} ms`);
+
+      const candidate = parseUtterance(spoken.text);
+      lines.push(
+        candidate.total === undefined
+          ? 'read: no amount found'
+          : `read: ${String(candidate.total.value)} minor units ` +
+            (candidate.currency?.value ?? '?') +
+            (candidate.merchant === undefined ? '' : ` at ${candidate.merchant.value}`),
+      );
+    } catch (cause) {
+      // Native rejections are not always Errors, and "[object Object]" is the
+      // least useful thing a diagnostic can say.
+      lines.push(
+        `failed: ${cause instanceof Error ? cause.message : JSON.stringify(cause)}`,
+      );
+    }
+
+    setVoiceLines(lines);
+    setVoiceRunning(false);
+  };
+
+  /**
+   * Record from the microphone and read the result back.
+   *
+   * The seam this covers is the format one: the recorder writes raw PCM into a
+   * WAV header of our own making, and whisper.cpp accepts exactly one shape of
+   * that. What the emulator's microphone hears is silence, so the transcript
+   * here proves nothing about accuracy — but "no error, header reads back at
+   * 16 kHz mono" proves the recording is something the engine can read, which
+   * is the part that was broken when the screen used expo-audio's m4a.
+   */
+  const runCapture = async (): Promise<void> => {
+    setCaptureRunning(true);
+    setCaptureLines([]);
+
+    const lines: string[] = [];
+    try {
+      const granted = await AudioModule.requestRecordingPermissionsAsync();
+      lines.push(`microphone: ${granted.granted ? 'granted' : 'denied'}`);
+      if (!granted.granted) {
+        setCaptureLines(lines);
+        setCaptureRunning(false);
+        return;
+      }
+
+      startRecording();
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const recorded = await stopRecording();
+
+      const base64 = await FileSystem.readAsStringAsync(recorded.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const bytes = new Uint8Array(Buffer.from(base64, 'base64'));
+      const header = readWavHeader(bytes);
+
+      lines.push(`captured: ${recorded.durationMs.toFixed(0)} ms, ${String(bytes.length)} bytes`);
+      lines.push(
+        `header: ${String(header.sampleRate)} Hz, ${String(header.channels)} ch, ` +
+          `${String(header.bitsPerSample)}-bit, data ${String(header.dataSize)} bytes`,
+      );
+
+      const spoken = await whisperEngine.transcribe(recorded.uri);
+      lines.push(`heard: "${spoken.text}"`);
+      await discardRecording(recorded);
+      lines.push(`cleaned up: ${String(!(await FileSystem.getInfoAsync(recorded.uri)).exists)}`);
+    } catch (cause) {
+      lines.push(`failed: ${cause instanceof Error ? cause.message : JSON.stringify(cause)}`);
+    }
+
+    setCaptureLines(lines);
+    setCaptureRunning(false);
+  };
 
   /**
    * Checks the OS-scheduled backup path.
@@ -354,6 +463,30 @@ export default function DiagnosticsScreen(): ReactNode {
       </Pressable>
 
       {scheduleLines.map((line) => (
+        <Text key={line} style={text.muted}>
+          {line}
+        </Text>
+      ))}
+
+      <Pressable style={styles.button} onPress={() => void runVoice()} disabled={voiceRunning}>
+        <Text style={styles.buttonText}>
+          {voiceRunning ? 'Listening…' : 'Transcribe the test recording'}
+        </Text>
+      </Pressable>
+
+      {voiceLines.map((line) => (
+        <Text key={line} style={text.muted}>
+          {line}
+        </Text>
+      ))}
+
+      <Pressable style={styles.button} onPress={() => void runCapture()} disabled={captureRunning}>
+        <Text style={styles.buttonText}>
+          {captureRunning ? 'Recording…' : 'Record three seconds and read it'}
+        </Text>
+      </Pressable>
+
+      {captureLines.map((line) => (
         <Text key={line} style={text.muted}>
           {line}
         </Text>
