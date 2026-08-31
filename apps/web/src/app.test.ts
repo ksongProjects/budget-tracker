@@ -250,7 +250,7 @@ describe('accessibility', () => {
     }
   });
 
-  it('announces what just happened', async () => {
+  it('announces what just happened', () => {
     const notice = root.querySelector('#notice');
 
     expect(notice?.getAttribute('role')).toBe('status');
