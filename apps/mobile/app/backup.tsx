@@ -20,7 +20,7 @@ import { signIn, signOut } from '../src/cloud/auth';
 import { cloudStatus, downloadRemote, listRemote, uploadNewestBackup } from '../src/cloud/sync';
 import type { CloudStatus } from '../src/cloud/sync';
 import type { RemoteArchive } from '@budget/backup';
-import { colors, radius, spacing, text } from '../src/ui/theme';
+import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
 
 type Stage =
   | 'loading'
@@ -292,10 +292,10 @@ export default function BackupScreen(): ReactNode {
             Backups are the only copy of your data. There is no server and no account —
             if you lose your phone without a backup, the ledger is gone.
           </Text>
-          <Pressable style={styles.primary} onPress={begin}>
+          <Pressable accessibilityRole="button" style={styles.primary} onPress={begin}>
             <Text style={styles.primaryText}>Set up backup</Text>
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.secondary}
             onPress={() => {
               setStage('restore');
@@ -322,7 +322,7 @@ export default function BackupScreen(): ReactNode {
             secureTextEntry
             style={styles.input}
           />
-          <Pressable style={styles.primary} onPress={() => void mintRecoveryKey()} disabled={busy}>
+          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void mintRecoveryKey()} disabled={busy}>
             <Text style={styles.primaryText}>{busy ? 'Working…' : 'Continue'}</Text>
           </Pressable>
         </>
@@ -338,13 +338,13 @@ export default function BackupScreen(): ReactNode {
             This is shown once. If you forget your password and lose this key, your backups
             cannot be opened by you, by us, or by anyone. There is no reset.
           </Text>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.secondary}
             onPress={() => void Clipboard.setStringAsync(printed)}
           >
             <Text style={styles.secondaryText}>Copy to clipboard</Text>
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.primary}
             onPress={() => {
               setStage('recovery-verify');
@@ -372,10 +372,10 @@ export default function BackupScreen(): ReactNode {
             autoCapitalize="characters"
             style={styles.input}
           />
-          <Pressable style={styles.primary} onPress={() => void verifyAndBackUp()} disabled={busy}>
+          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void verifyAndBackUp()} disabled={busy}>
             <Text style={styles.primaryText}>{busy ? 'Backing up…' : 'Confirm and back up'}</Text>
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.secondary}
             onPress={() => {
               setStage('recovery-shown');
@@ -401,10 +401,10 @@ export default function BackupScreen(): ReactNode {
             {String(MIN_INTERVAL_HOURS)} hours and only when something changed. Neither your
             password nor your recovery key is needed for it.
           </Text>
-          <Pressable style={styles.primary} onPress={() => void backUpAgain()} disabled={busy}>
+          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void backUpAgain()} disabled={busy}>
             <Text style={styles.primaryText}>{busy ? 'Working…' : 'Back up now'}</Text>
           </Pressable>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.secondary}
             onPress={() => {
               setStage('restore');
@@ -438,10 +438,10 @@ export default function BackupScreen(): ReactNode {
                 and cannot help you open them if you lose both your password and your
                 recovery key.
               </Text>
-              <Pressable style={styles.secondary} onPress={() => void uploadNow()} disabled={busy}>
+              <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void uploadNow()} disabled={busy}>
                 <Text style={styles.secondaryText}>Upload the newest backup</Text>
               </Pressable>
-              <Pressable style={styles.quiet} onPress={() => void disconnectDrive()} disabled={busy}>
+              <Pressable accessibilityRole="button" style={styles.quiet} onPress={() => void disconnectDrive()} disabled={busy}>
                 <Text style={styles.quietText}>Disconnect Drive</Text>
               </Pressable>
             </>
@@ -451,7 +451,7 @@ export default function BackupScreen(): ReactNode {
                 Backups on this device do not survive this device. Connecting Drive uploads
                 each new archive, still encrypted, to a folder only this app can see.
               </Text>
-              <Pressable style={styles.secondary} onPress={() => void connectDrive()} disabled={busy}>
+              <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void connectDrive()} disabled={busy}>
                 <Text style={styles.secondaryText}>Connect Google Drive</Text>
               </Pressable>
             </>
@@ -475,7 +475,7 @@ export default function BackupScreen(): ReactNode {
             autoCorrect={false}
             style={styles.input}
           />
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.primary}
             onPress={() => void runRestore('file')}
             disabled={busy}
@@ -483,7 +483,7 @@ export default function BackupScreen(): ReactNode {
             <Text style={styles.primaryText}>{busy ? 'Restoring…' : 'Choose a backup file'}</Text>
           </Pressable>
           {existing.count > 0 && (
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={styles.secondary}
               onPress={() => {
                 Alert.alert(
@@ -502,13 +502,13 @@ export default function BackupScreen(): ReactNode {
           )}
           {cloud?.signedIn === true && (
             <>
-              <Pressable style={styles.secondary} onPress={() => void loadRemote()} disabled={busy}>
+              <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void loadRemote()} disabled={busy}>
                 <Text style={styles.secondaryText}>
                   {remote.length === 0 ? 'Look on Google Drive' : 'Refresh the Drive list'}
                 </Text>
               </Pressable>
               {remote.map((archive) => (
-                <Pressable
+                <Pressable accessibilityRole="button"
                   key={archive.id}
                   style={styles.remoteRow}
                   disabled={busy}
@@ -533,14 +533,20 @@ export default function BackupScreen(): ReactNode {
             </>
           )}
 
-          <Pressable style={styles.quiet} onPress={() => void refresh()} disabled={busy}>
+          <Pressable accessibilityRole="button" style={styles.quiet} onPress={() => void refresh()} disabled={busy}>
             <Text style={styles.quietText}>Back</Text>
           </Pressable>
         </>
       )}
 
       {status !== null && <Text style={styles.status}>{status}</Text>}
-      {error !== null && <Text style={styles.error}>{error}</Text>}
+      {error !== null && <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+          style={styles.error}
+        >
+          {error}
+        </Text>}
     </ScrollView>
   );
 }
@@ -619,7 +625,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   secondaryText: { color: colors.text, fontWeight: '600' },
-  quiet: { paddingVertical: spacing.sm, alignItems: 'center' },
+  quiet: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Small print, full-size target: the text is quiet, the control is not.
+    minHeight: MIN_TOUCH_TARGET,
+  },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
   remoteRow: {
     backgroundColor: colors.surface,

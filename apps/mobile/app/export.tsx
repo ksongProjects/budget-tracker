@@ -10,7 +10,7 @@ import {
   shareExport,
 } from '../src/export/service';
 import type { ExportRange, ExportResult } from '../src/export/service';
-import { colors, radius, spacing, text } from '../src/ui/theme';
+import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
 
 const RANGES: readonly ExportRange[] = ['all', 'this-year', 'last-90-days'];
 
@@ -82,7 +82,7 @@ export default function ExportScreen(): ReactNode {
       <Text style={text.heading}>What to include</Text>
       <View style={styles.rangeRow}>
         {RANGES.map((option) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={option}
             style={[styles.range, option === range && styles.rangeActive]}
             onPress={() => {
@@ -98,26 +98,32 @@ export default function ExportScreen(): ReactNode {
         ))}
       </View>
 
-      <Pressable style={styles.primary} onPress={() => void run('CSV')} disabled={busy}>
+      <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void run('CSV')} disabled={busy}>
         <Text style={styles.primaryText}>{busy ? 'Working…' : 'Export CSV'}</Text>
       </Pressable>
-      <Pressable style={styles.secondary} onPress={() => void run('PDF')} disabled={busy}>
+      <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void run('PDF')} disabled={busy}>
         <Text style={styles.secondaryText}>Export PDF report</Text>
       </Pressable>
 
       {result !== null && (
         <>
-          <Pressable style={styles.primary} onPress={() => void share()}>
+          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void share()}>
             <Text style={styles.primaryText}>Share the {result.kind}</Text>
           </Pressable>
-          <Pressable style={styles.quiet} onPress={() => void discard()}>
+          <Pressable accessibilityRole="button" style={styles.quiet} onPress={() => void discard()}>
             <Text style={styles.quietText}>Delete the files from this device</Text>
           </Pressable>
         </>
       )}
 
       {status !== null && <Text style={styles.status}>{status}</Text>}
-      {error !== null && <Text style={styles.error}>{error}</Text>}
+      {error !== null && <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+          style={styles.error}
+        >
+          {error}
+        </Text>}
     </ScrollView>
   );
 }
@@ -166,7 +172,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   secondaryText: { color: colors.text, fontWeight: '600' },
-  quiet: { paddingVertical: spacing.sm, alignItems: 'center' },
+  quiet: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Small print, full-size target: the text is quiet, the control is not.
+    minHeight: MIN_TOUCH_TARGET,
+  },
   quietText: { color: colors.textMuted },
   status: { color: colors.text },
   error: { color: colors.danger },

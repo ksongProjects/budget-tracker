@@ -32,7 +32,7 @@ export default function CaptureScreen(): ReactNode {
         <Text style={[text.muted, styles.permissionBody]}>
           Photos of your receipts stay on this device. They are never uploaded.
         </Text>
-        <Pressable style={styles.primaryButton} onPress={() => void requestPermission()}>
+        <Pressable accessibilityRole="button" style={styles.primaryButton} onPress={() => void requestPermission()}>
           <Text style={styles.primaryButtonText}>Allow camera</Text>
         </Pressable>
       </View>
@@ -61,8 +61,14 @@ export default function CaptureScreen(): ReactNode {
       <CameraView ref={camera} style={styles.camera} facing="back" />
 
       <View style={styles.controls}>
-        {error !== null && <Text style={styles.error}>{error}</Text>}
-        <Pressable
+        {error !== null && <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+          style={styles.error}
+        >
+          {error}
+        </Text>}
+        <Pressable accessibilityRole="button"
           onPress={() => void shoot()}
           disabled={busy}
           style={[styles.shutter, busy && styles.shutterBusy]}

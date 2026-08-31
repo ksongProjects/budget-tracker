@@ -100,7 +100,7 @@ export default function PerfScreen(): ReactNode {
         {SEED_ROWS.toLocaleString()} rows so the indexes are exercised.
       </Text>
 
-      <Pressable style={styles.button} onPress={() => void run()} disabled={running}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void run()} disabled={running}>
         <Text style={styles.buttonText}>{running ? 'Measuring…' : 'Run benchmarks'}</Text>
       </Pressable>
 

@@ -15,7 +15,7 @@ import {
 } from '../src/voice/model';
 import { whisperEngine } from '../src/voice/whisper';
 import { discardRecording, startRecording, stopRecording } from '../src/voice/recorder';
-import { colors, radius, spacing, text } from '../src/ui/theme';
+import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
 
 /**
  * Speaking a spend.
@@ -144,7 +144,7 @@ export default function VoiceScreen(): ReactNode {
             The model comes to your phone. Nothing you say is ever sent anywhere: once it is
             here, this works with no network at all.
           </Text>
-          <Pressable style={styles.primary} onPress={() => void fetchModel()} disabled={busy}>
+          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void fetchModel()} disabled={busy}>
             <Text style={styles.primaryText}>
               {progress === undefined
                 ? 'Download the speech model'
@@ -161,11 +161,11 @@ export default function VoiceScreen(): ReactNode {
           </Text>
 
           {recording ? (
-            <Pressable style={styles.primary} onPress={() => void stopAndRead()} disabled={busy}>
+            <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void stopAndRead()} disabled={busy}>
               <Text style={styles.primaryText}>Stop and read it</Text>
             </Pressable>
           ) : (
-            <Pressable style={styles.primary} onPress={() => void record()} disabled={busy}>
+            <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void record()} disabled={busy}>
               <Text style={styles.primaryText}>{busy ? 'Working…' : 'Record'}</Text>
             </Pressable>
           )}
@@ -197,7 +197,7 @@ export default function VoiceScreen(): ReactNode {
           )}
 
           {candidate?.total !== undefined && (
-            <Pressable style={styles.secondary} onPress={useIt}>
+            <Pressable accessibilityRole="button" style={styles.secondary} onPress={useIt}>
               <Text style={styles.secondaryText}>Use this</Text>
             </Pressable>
           )}
@@ -206,7 +206,7 @@ export default function VoiceScreen(): ReactNode {
           <Text style={text.faint}>
             Speech model on this device: {(modelBytes / 1024 / 1024).toFixed(0)} MB.
           </Text>
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={styles.quiet}
             onPress={() => {
               Alert.alert(
@@ -230,7 +230,13 @@ export default function VoiceScreen(): ReactNode {
         </>
       )}
 
-      {error !== null && <Text style={styles.error}>{error}</Text>}
+      {error !== null && <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+          style={styles.error}
+        >
+          {error}
+        </Text>}
     </ScrollView>
   );
 }
@@ -263,7 +269,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   secondaryText: { color: colors.text, fontWeight: '600' },
-  quiet: { paddingVertical: spacing.sm, alignItems: 'center' },
+  quiet: {
+    paddingVertical: spacing.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // Small print, full-size target: the text is quiet, the control is not.
+    minHeight: MIN_TOUCH_TARGET,
+  },
   quietText: { color: colors.textMuted },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
   warn: { color: colors.pending },

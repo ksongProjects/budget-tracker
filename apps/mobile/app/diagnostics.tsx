@@ -681,7 +681,7 @@ export default function DiagnosticsScreen(): ReactNode {
         database this app actually uses.
       </Text>
 
-      <Pressable style={styles.button} onPress={() => void run()} disabled={running}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void run()} disabled={running}>
         <Text style={styles.buttonText}>{running ? 'Running…' : 'Run driver contract'}</Text>
       </Pressable>
 
@@ -693,7 +693,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       )}
 
-      <Pressable
+      <Pressable accessibilityRole="button"
         style={styles.button}
         onPress={() => void runSchedule()}
         disabled={scheduleRunning}
@@ -709,7 +709,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runVoice()} disabled={voiceRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runVoice()} disabled={voiceRunning}>
         <Text style={styles.buttonText}>
           {voiceRunning ? 'Listening…' : 'Transcribe the test recording'}
         </Text>
@@ -721,7 +721,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runCapture()} disabled={captureRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runCapture()} disabled={captureRunning}>
         <Text style={styles.buttonText}>
           {captureRunning ? 'Recording…' : 'Record three seconds and read it'}
         </Text>
@@ -733,7 +733,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runTiers()} disabled={tierRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runTiers()} disabled={tierRunning}>
         <Text style={styles.buttonText}>
           {tierRunning ? 'Scoring…' : 'Score the reading engines'}
         </Text>
@@ -745,7 +745,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runCrypto()} disabled={cryptoRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runCrypto()} disabled={cryptoRunning}>
         <Text style={styles.buttonText}>
           {cryptoRunning ? 'Checking…' : 'Run crypto vectors'}
         </Text>
@@ -770,7 +770,7 @@ export default function DiagnosticsScreen(): ReactNode {
           </View>
         ))}
 
-      <Pressable style={styles.button} onPress={() => void runArchive()} disabled={archiveRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runArchive()} disabled={archiveRunning}>
         <Text style={styles.buttonText}>
           {archiveRunning ? 'Writing…' : 'Round-trip a real archive'}
         </Text>
@@ -782,7 +782,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </View>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runFailures()} disabled={failRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runFailures()} disabled={failRunning}>
         <Text style={styles.buttonText}>
           {failRunning ? 'Breaking…' : 'Break backup and restore on purpose'}
         </Text>
@@ -794,7 +794,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </View>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runOcr()} disabled={ocrRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runOcr()} disabled={ocrRunning}>
         <Text style={styles.buttonText}>{ocrRunning ? 'Reading…' : 'Run OCR on a known receipt'}</Text>
       </Pressable>
 

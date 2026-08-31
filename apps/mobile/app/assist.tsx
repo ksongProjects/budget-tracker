@@ -100,7 +100,7 @@ export default function AssistScreen(): ReactNode {
             secureTextEntry
             style={styles.input}
           />
-          <Pressable
+          <Pressable accessibilityRole="button"
             style={[styles.primary, (busy || entry.trim() === '') && styles.disabled]}
             disabled={busy || entry.trim() === ''}
             onPress={() => void save()}
@@ -115,7 +115,7 @@ export default function AssistScreen(): ReactNode {
             Held in the phone&apos;s keystore, alongside your backup keys. It is never written to the
             ledger and never included in a backup.
           </Text>
-          <Pressable style={styles.secondary} onPress={forget}>
+          <Pressable accessibilityRole="button" style={styles.secondary} onPress={forget}>
             <Text style={styles.secondaryText}>Forget this key</Text>
           </Pressable>
         </>

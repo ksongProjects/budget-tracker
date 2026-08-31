@@ -84,7 +84,7 @@ export default function TransactionScreen(): ReactNode {
           <Text style={text.muted}>
             This amount stays out of your totals until you confirm it.
           </Text>
-          <Pressable style={styles.primaryButton} onPress={() => void confirm()} disabled={busy}>
+          <Pressable accessibilityRole="button" style={styles.primaryButton} onPress={() => void confirm()} disabled={busy}>
             <Text style={styles.primaryButtonText}>Confirm</Text>
           </Pressable>
         </View>
@@ -115,7 +115,7 @@ export default function TransactionScreen(): ReactNode {
         </Text>
       </Field>
 
-      <Pressable style={styles.deleteButton} onPress={remove}>
+      <Pressable accessibilityRole="button" style={styles.deleteButton} onPress={remove}>
         <Text style={styles.deleteButtonText}>Delete</Text>
       </Pressable>
     </ScrollView>

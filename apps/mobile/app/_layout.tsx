@@ -102,7 +102,7 @@ function LedgerGate(): ReactNode {
 function HeaderLink({ href, label }: { href: '/export' | '/backup'; label: string }): ReactNode {
   return (
     <Link href={href} asChild>
-      <Pressable hitSlop={8}>
+      <Pressable accessibilityRole="button" hitSlop={8}>
         <Text style={styles.headerLink}>{label}</Text>
       </Pressable>
     </Link>
