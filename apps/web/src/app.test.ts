@@ -63,7 +63,12 @@ async function addSpend(amount: string, note: string): Promise<void> {
   field('#submit').click();
 
   // Either it landed on the ledger, or the form is still up with a complaint.
-  await waitFor(() => root.querySelector('#ledger') !== null || text('#notice') !== '');
+  // Both halves name a screen: a notice on its own is not a finished render.
+  await waitFor(
+    () =>
+      root.querySelector('#ledger') !== null ||
+      (root.querySelector('#add') !== null && text('#notice') !== ''),
+  );
 }
 
 function field(selector: string): HTMLInputElement {

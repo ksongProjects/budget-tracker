@@ -128,40 +128,42 @@ function routeOf(hash: string): View {
   return known.includes(name as View) ? (name as View) : 'ledger';
 }
 
+/**
+ * Draw the current screen.
+ *
+ * The view is built before anything is put on the page, then the whole lot
+ * swapped in at once. Appending the chrome first and awaiting the screen
+ * afterwards leaves a window where the notice is on screen and the content is
+ * not — a flash of half a page for a user, and for a test a state that looks
+ * finished but is not.
+ */
 async function render(root: HTMLElement): Promise<void> {
   const current = required();
-  root.replaceChildren();
-  root.append(nav(), noticeLine());
+  const body = await viewFor(root, current);
 
+  root.replaceChildren(nav(), noticeLine(), body);
+}
+
+async function viewFor(root: HTMLElement, current: App): Promise<HTMLElement> {
   switch (view) {
     case 'ledger':
-      root.append(await ledgerView(current));
-      break;
+      return ledgerView(current);
     case 'summary':
-      root.append(await summaryView(current));
-      break;
+      return summaryView(current);
     case 'add':
-      root.append(addView(root));
-      break;
+      return addView(root);
     case 'backup':
-      root.append(backupView(root, current));
-      break;
+      return backupView(root, current);
     case 'export':
-      root.append(exportView(current));
-      break;
+      return exportView(current);
     case 'edit':
-      root.append(await editView(root, current));
-      break;
+      return editView(root, current);
     case 'import':
-      root.append(
-        statementView(current.ctx, (message) => {
-          navigate(root, 'pending', message);
-        }),
-      );
-      break;
+      return statementView(current.ctx, (message) => {
+        navigate(root, 'pending', message);
+      });
     case 'pending':
-      root.append(await pendingView(root, current));
-      break;
+      return pendingView(root, current);
   }
 }
 
