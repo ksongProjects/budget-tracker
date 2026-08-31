@@ -11,13 +11,17 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": false,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "whisper.rn/index": ["../../node_modules/whisper.rn/lib/typescript/index.d.ts"]
+    }
   },
   "include": [
     "app/**/*.ts",
     "app/**/*.tsx",
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "src/**/*.d.ts"
   ],
   "exclude": [
     "node_modules"

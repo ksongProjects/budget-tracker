@@ -16,10 +16,13 @@
     "@budget/extract": "workspace:*",
     "@budget/report": "workspace:*",
     "@budget/schema": "workspace:*",
+    "@fugood/react-native-audio-pcm-stream": "^1.1.4",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
     "@shopify/flash-list": "2.0.2",
+    "buffer": "^6.0.3",
     "expo": "~57.0.18",
     "expo-asset": "~57.0.15",
+    "expo-audio": "~57.0.4",
     "expo-auth-session": "~57.0.10",
     "expo-background-task": "~57.0.14",
     "expo-camera": "~57.0.4",
@@ -46,7 +49,8 @@
     "react-native-libsodium": "^1.7.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.2",
-    "react-native-web": "^0.21.2"
+    "react-native-web": "^0.21.2",
+    "whisper.rn": "^0.7.4"
   },
   "devDependencies": {
     "@types/react": "~19.2.2"

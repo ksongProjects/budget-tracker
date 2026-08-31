@@ -98,6 +98,11 @@ export default function LedgerScreen(): ReactNode {
             <Text style={styles.fabSecondaryText}>+</Text>
           </Pressable>
         </Link>
+        <Link href="/voice" asChild>
+          <Pressable style={styles.fabSecondary} accessibilityLabel="Say a spend">
+            <Text style={styles.fabSecondaryText}>🎙</Text>
+          </Pressable>
+        </Link>
         <Link href="/capture" asChild>
           <Pressable style={styles.fab} accessibilityLabel="Photograph a receipt">
             <Text style={styles.fabText}>◉</Text>
