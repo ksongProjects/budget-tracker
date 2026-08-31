@@ -15,6 +15,7 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@budget/schema": "workspace:*"
+    "@budget/schema": "workspace:*",
+    "zod": "^4.5.4"
   }
 }

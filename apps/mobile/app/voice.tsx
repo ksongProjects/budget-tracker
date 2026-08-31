@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AudioModule } from 'expo-audio';
-import { formatAmount, parseUtterance } from '../src/voice/deps';
+import { formatAmount } from '../src/voice/deps';
+import { runAssist } from '../src/llm/assist';
 import type { CandidateTransaction } from '@budget/extract';
 import {
   DEFAULT_MODEL,
@@ -97,7 +98,11 @@ export default function VoiceScreen(): ReactNode {
       try {
         const spoken = await whisperEngine.transcribe(recorded.uri);
         setTranscript(spoken.text);
-        setCandidate(parseUtterance(spoken.text));
+
+        // Through the tier router rather than straight to the rules: on a
+        // phone with an on-device model the same transcript gets read by it,
+        // and on every other phone this is the rules, exactly as before.
+        setCandidate(await runAssist({ text: spoken.text, kind: 'utterance' }));
       } finally {
         // The words are kept for the user to check; the audio is not. Nothing
         // else in the app holds a recording of someone's voice, and a

@@ -16,8 +16,9 @@ import {
 } from '@budget/crypto';
 import { readArchive, writeArchive } from '@budget/backup';
 import { createNativeSodiumBackend } from '../src/crypto/backend';
-import { extractReceipt, readWavHeader } from '@budget/extract';
-import { formatAmount } from '@budget/schema';
+import { applyRules, extractReceipt, formatScore, readWavHeader, scoreEngine } from '@budget/extract';
+import type { StructuringEngine } from '@budget/extract';
+import { CurrencySchema, formatAmount } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
 import { createExpoDriver } from '../src/db/driver';
 import {
@@ -30,8 +31,12 @@ import { parseUtterance } from '@budget/extract';
 import { isModelPresent } from '../src/voice/model';
 import { whisperEngine } from '../src/voice/whisper';
 import { discardRecording, startRecording, stopRecording } from '../src/voice/recorder';
+import { deviceEngines, deviceModel, engineList } from '../src/llm/engines';
+import { assistOffer, runAssist, textToSend } from '../src/llm/assist';
 import { loadOcrEngine } from '../src/capture/ocr';
 import { colors, radius, spacing, text } from '../src/ui/theme';
+
+const DEFAULT_CURRENCY = CurrencySchema.parse('USD');
 
 /**
  * Runs the shared driver contract against the real expo-sqlite driver, on the
@@ -64,6 +69,8 @@ export default function DiagnosticsScreen(): ReactNode {
   const [voiceRunning, setVoiceRunning] = useState(false);
   const [captureLines, setCaptureLines] = useState<string[]>([]);
   const [captureRunning, setCaptureRunning] = useState(false);
+  const [tierLines, setTierLines] = useState<string[]>([]);
+  const [tierRunning, setTierRunning] = useState(false);
 
   /**
    * Transcribe a known recording, rather than whatever the microphone hears.
@@ -165,6 +172,51 @@ export default function DiagnosticsScreen(): ReactNode {
   };
 
   /**
+   * Score every engine this device can offer against the fixture suite.
+   *
+   * The same harness CI runs, run where the models actually live. On a phone
+   * with an on-device model this is the number that answers whether Tier 3 is
+   * worth the battery; on every phone it reports the rules floor, which is
+   * what a device with no model gets and the bar anything else has to clear.
+   *
+   * Cloud Assist is scored only if a key is here, and even then the fixtures
+   * are invented text rather than anyone's receipts — sending them costs the
+   * user a few cents of their own quota, and nothing personal leaves.
+   */
+  const runTiers = async (): Promise<void> => {
+    setTierRunning(true);
+    setTierLines([]);
+
+    const lines: string[] = [];
+    const model = deviceModel();
+    lines.push(`${model.label}: ${model.capability.availability}`);
+
+    const rules: StructuringEngine = {
+      name: 'rules',
+      remote: false,
+      capability: () => Promise.resolve({ availability: 'ready' }),
+      structure: (request) => Promise.resolve(applyRules(request)),
+    };
+
+    // The remote engine is left out: scoring it would send eight captures
+    // without the per-capture tap that is the whole point of the consent rule.
+    const engines = [rules, ...deviceEngines()];
+    lines.push(`engines configured: ${String((await engineList()).length + 1)}`);
+
+    for (const engine of engines) {
+      try {
+        const score = await scoreEngine(engine, { defaultCurrency: DEFAULT_CURRENCY });
+        lines.push(...formatScore(score).split('\n'));
+      } catch (cause) {
+        lines.push(`${engine.name} failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
+    }
+
+    setTierLines(lines);
+    setTierRunning(false);
+  };
+
+  /**
    * Checks the OS-scheduled backup path.
    *
    * It cannot be run from here: expo-background-task refuses while the app is
@@ -208,6 +260,49 @@ export default function DiagnosticsScreen(): ReactNode {
 
     setScheduleLines(lines);
     setScheduleRunning(false);
+  };
+
+  /**
+   * The Cloud Assist gate, on hardware, against real OCR output.
+   *
+   * The adapter tests prove the refusals in CI with a fake fetch. This proves
+   * the same thing where it matters — a real key from the keystore, a real
+   * network stack, a real receipt — by asking twice: once with no permission,
+   * which must reach the network never and fall back to the rules, and once
+   * with permission for that exact text, which must actually go.
+   *
+   * With a test key the second call comes back 401, and that is the point: a
+   * refusal from the provider is proof the request left, and a request that
+   * never left could not be refused.
+   */
+  const checkAssistGate = async (receiptText: string): Promise<string[]> => {
+    const lines = ['--- cloud assist gate ---'];
+    const offer = await assistOffer();
+
+    lines.push(`offer: ${offer.available ? offer.label : 'nothing to offer'}`);
+    if (!offer.available) return lines;
+
+    const withoutConsent = await runAssist({ text: receiptText, kind: 'receipt' });
+    lines.push(`no permission: read by ${withoutConsent.engine} (expect rules)`);
+
+    const sending = textToSend(receiptText);
+    lines.push(`would send ${String(sending.length)} characters, masked`);
+
+    try {
+      const withConsent = await runAssist({
+        text: receiptText,
+        kind: 'receipt',
+        approvedText: sending,
+        onError: (engine, cause) => {
+          lines.push(`${engine} said: ${cause instanceof Error ? cause.message : String(cause)}`);
+        },
+      });
+      lines.push(`with permission: read by ${withConsent.engine}`);
+    } catch (cause) {
+      lines.push(`with permission: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+
+    return lines;
   };
 
   /**
@@ -313,6 +408,8 @@ export default function DiagnosticsScreen(): ReactNode {
         `${FileSystem.documentDirectory ?? ''}ocr-lines.json`,
         JSON.stringify(result.lines, null, 2),
       );
+
+      lines.push(...(await checkAssistGate(result.lines.map((line) => line.text).join('\n'))));
     } catch (error) {
       lines.push(`failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -487,6 +584,18 @@ export default function DiagnosticsScreen(): ReactNode {
       </Pressable>
 
       {captureLines.map((line) => (
+        <Text key={line} style={text.muted}>
+          {line}
+        </Text>
+      ))}
+
+      <Pressable style={styles.button} onPress={() => void runTiers()} disabled={tierRunning}>
+        <Text style={styles.buttonText}>
+          {tierRunning ? 'Scoring…' : 'Score the reading engines'}
+        </Text>
+      </Pressable>
+
+      {tierLines.map((line) => (
         <Text key={line} style={text.muted}>
           {line}
         </Text>
