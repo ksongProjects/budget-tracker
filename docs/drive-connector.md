@@ -59,7 +59,7 @@ local. To turn it on for a build:
    homepage, demo video). The broader `drive` scope is *restricted* and adds an
    annual third-party security assessment — avoiding that is much of why this
    design uses appdata.
-3. An **Android OAuth client id**: package `com.ksongprojects.budgettracker` plus
+3. An **Android OAuth client id**: package `com.ksongprojects.txns` plus
    the SHA-1 of the signing certificate. Register both the debug certificate and
    the Play upload certificate, or the flow works in development and fails in
    release. iOS and web clients are separate ids, added when those ship.

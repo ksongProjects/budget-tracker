@@ -13,10 +13,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ksongprojects.budgettracker"
+      "bundleIdentifier": "com.ksongprojects.txns"
     },
     "android": {
-      "package": "com.ksongprojects.budgettracker",
+      "package": "com.ksongprojects.txns",
       "adaptiveIcon": {
         "backgroundColor": "#0f1115",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -95,8 +95,8 @@ the budgets — useful, and it will take about half a minute.
 Handy while poking at it:
 
 ```bash
-adb shell run-as com.ksongprojects.budgettracker ls -l files/backups
-adb shell pm clear com.ksongprojects.budgettracker    # wipe the app completely
+adb shell run-as com.ksongprojects.txns ls -l files/backups
+adb shell pm clear com.ksongprojects.txns    # wipe the app completely
 adb exec-out screencap -p > shot.png
 ```
 
