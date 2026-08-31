@@ -19,7 +19,7 @@ has.
 
 ## Test evidence
 
-561 node tests and 64 browser tests at phase close, up from 530.
+597 node tests and 64 browser tests at phase close, up from 530.
 
 Two numbers matter more than the count:
 
