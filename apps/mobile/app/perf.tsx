@@ -3,8 +3,12 @@ import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CurrencySchema, uuidv7 } from '@budget/schema';
 import { useLedger } from '../src/db/provider';
+import { Asset } from 'expo-asset';
+import { extractReceipt } from '@budget/extract';
 import { coldStart, measureRepeated } from '../src/lib/perf';
 import type { MeasurementResult } from '../src/lib/perf';
+import { loadOcrEngine } from '../src/capture/ocr';
+import { createBackup } from '../src/backup/service';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
 const USD = CurrencySchema.parse('USD');
@@ -63,6 +67,27 @@ export default function PerfScreen(): ReactNode {
     push(await measureRepeated('summary by month', 5, () => ledger.transactions.summary('month')));
     push(await measureRepeated('full-text search', 5, () => ledger.transactions.search('coffee')));
 
+    // Writing is on the budget list too, and it is the one the user waits on
+    // most often: every capture ends in an insert.
+    push(
+      await measureRepeated('insert one transaction', 5, async () => {
+        await ledger.transactions.create(benchmarkRow());
+      }),
+    );
+
+    // Shutter to provisional total: OCR plus the tier-2 rules, which is what
+    // stands between the shutter sound and a number on screen. Measured over
+    // the bundled receipt, because a benchmark that depends on what the camera
+    // happened to see is not a benchmark.
+    setNote('Reading the test receipt…');
+    for (const measurement of await measureShutter()) push(measurement);
+    setNote(null);
+
+    // A backup of a ledger this size, written the way the app writes one.
+    setNote('Writing a backup…');
+    push(await measureBackup(ledger));
+    setNote(null);
+
     setRunning(false);
   };
 
@@ -114,6 +139,69 @@ export default function PerfScreen(): ReactNode {
  * Seed rows spread across two years so month grouping and the date index have
  * something real to do.
  */
+/** A row shaped like one the add screen writes, for timing an insert. */
+function benchmarkRow() {
+  const at = Date.now();
+  return {
+    captureId: null,
+    accountId: null,
+    merchantId: null,
+    categoryId: null,
+    amountMinor: 1234 as never,
+    currency: USD,
+    occurredAt: at as never,
+    postedAt: null,
+    note: 'benchmark',
+    source: 'manual' as const,
+    confirmedAt: at as never,
+    fxOriginalMinor: null,
+    fxOriginalCurrency: null,
+    fxRate: null,
+    reconciled: false,
+  };
+}
+
+/**
+ * Shutter to provisional total, over the receipt in the test assets.
+ *
+ * The budget covers OCR plus the rules, because that is the wait the user
+ * feels: the shutter fires and the screen either shows a number or does not.
+ */
+async function measureShutter(): Promise<MeasurementResult[]> {
+  const engine = loadOcrEngine();
+  if (!engine) return [];
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const asset = Asset.fromModule(require('../assets/test-receipt.png') as number);
+  await asset.downloadAsync();
+  const uri = asset.localUri ?? asset.uri;
+
+  const whole = await measureRepeated('shutter to provisional total', 3, async () => {
+    extractReceipt(await engine.recognize(uri));
+  });
+
+  // Split, because "over budget" is not actionable and "the engine is 95% of
+  // it" is: one half is a native model this app does not control, the other is
+  // rules it does.
+  const recognised = await engine.recognize(uri);
+  const rules = await measureRepeated('  of which the rules', 5, () => {
+    extractReceipt(recognised);
+    return Promise.resolve();
+  });
+  const ocr = await measureRepeated('  of which OCR', 3, async () => {
+    await engine.recognize(uri);
+  });
+
+  return [whole, ocr, rules];
+}
+
+/** A real backup of whatever this device is holding, written the way the app writes one. */
+async function measureBackup(ledger: ReturnType<typeof useLedger>): Promise<MeasurementResult> {
+  return measureRepeated('backup write', 1, async () => {
+    await createBackup(ledger);
+  });
+}
+
 async function seed(ledger: ReturnType<typeof useLedger>, count: number): Promise<void> {
   const start = Date.now() - 730 * DAY;
   const merchants = ['Blue Bottle Coffee', 'Safeway', 'Shell', 'Tartine Bakery', 'Muni'];
