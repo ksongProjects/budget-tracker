@@ -17,7 +17,16 @@ import { SIZES } from '@budget/crypto';
  */
 
 export const MAGIC = new Uint8Array([0x42, 0x54, 0x42, 0x4b]); // "BTBK"
-export const FORMAT_VERSION = 1;
+export const FORMAT_VERSION = 2;
+
+/**
+ * The last version whose frames were sealed without the header bound in.
+ *
+ * Archives written before header authentication still open — a backup a user
+ * made a year ago is the one they need most — so the reader keeps producing
+ * v1's associated data for v1 files, and only v1 files.
+ */
+export const UNAUTHENTICATED_HEADER_VERSION = 1;
 
 /** Frames are capped so a reader never has to hold a whole archive in memory. */
 export const MAX_FRAME_BYTES = 4 * 1024 * 1024;
@@ -124,13 +133,29 @@ export function frameNonce(prefix: Uint8Array, counter: number): Uint8Array {
  * its version byte, and the final flag so the last frame cannot be passed off
  * as a middle one — which is how truncation would otherwise go unnoticed.
  *
+ * Since v2 it also carries the header, verbatim. Without that the header was
+ * the one part of an archive nobody had signed: its salt, its creation time and
+ * its schema version could all be edited in place and every frame would still
+ * authenticate. A device found this — a flipped header byte produced not a
+ * clear refusal but a raw SQLite error from deep inside a restore, because the
+ * archive had "opened" fine. The bytes are passed exactly as they were read
+ * rather than re-serialised, because JSON key order is not guaranteed and a
+ * reordered header would fail to authenticate an archive that is perfectly
+ * good.
+ *
  * A plain ASCII string rather than packed bytes: react-native-libsodium accepts
  * only a string as associated data, and both libraries encode it as UTF-8, so
  * this is the one representation that means the same thing on every platform.
  * Packed bytes appeared to work until they were run on a device.
  */
-export function frameAssociatedData(counter: number, isFinal: boolean): string {
-  return `BTBK/${String(FORMAT_VERSION)}/${String(counter)}/${isFinal ? 'final' : 'mid'}`;
+export function frameAssociatedData(
+  counter: number,
+  isFinal: boolean,
+  header?: string,
+  version: number = FORMAT_VERSION,
+): string {
+  const base = `BTBK/${String(version)}/${String(counter)}/${isFinal ? 'final' : 'mid'}`;
+  return header === undefined ? base : `${base}/${header}`;
 }
 
 export interface SealedFrame {
@@ -147,6 +172,7 @@ export function sealFrame(
   body: Uint8Array,
   isFinal: boolean,
   maxFrameBytes: number = MAX_FRAME_BYTES,
+  header?: string,
 ): SealedFrame {
   if (body.length > maxFrameBytes) {
     throw new ArchiveError(`frame body exceeds ${String(maxFrameBytes)} bytes`);
@@ -159,7 +185,7 @@ export function sealFrame(
       archiveKey,
       frameNonce(noncePrefix, counter),
       body,
-      frameAssociatedData(counter, isFinal),
+      frameAssociatedData(counter, isFinal, header),
     ),
   };
 }
@@ -172,11 +198,13 @@ export function openFrame(
   counter: number,
   ciphertext: Uint8Array,
   isFinal: boolean,
+  header?: string,
+  version: number = FORMAT_VERSION,
 ): Uint8Array | null {
   return sodium.aeadDecrypt(
     archiveKey,
     frameNonce(noncePrefix, counter),
     ciphertext,
-    frameAssociatedData(counter, isFinal),
+    frameAssociatedData(counter, isFinal, header, version),
   );
 }

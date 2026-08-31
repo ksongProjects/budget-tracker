@@ -5,7 +5,7 @@ import { Asset } from 'expo-asset';
 import { AudioModule } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { DRIVER_CONTRACT } from '@budget/db';
+import { DRIVER_CONTRACT, SCHEMA_VERSION } from '@budget/db';
 import {
   CRYPTO_VECTORS,
   KDF_PARAMS,
@@ -21,12 +21,19 @@ import type { StructuringEngine } from '@budget/extract';
 import { CurrencySchema, formatAmount } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
 import { createExpoDriver } from '../src/db/driver';
+import { useLedger } from '../src/db/provider';
 import {
   isAutoBackupRegistered,
   registerAutoBackupTask,
   triggerAutoBackupForTesting,
 } from '../src/backup/auto';
-import { lastBackupAt, listBackups, readScheduledRun } from '../src/backup/service';
+import {
+  lastBackupAt,
+  listBackups,
+  readScheduledRun,
+  restoreBackup,
+  sweepPartials,
+} from '../src/backup/service';
 import { parseUtterance } from '@budget/extract';
 import { isModelPresent } from '../src/voice/model';
 import { whisperEngine } from '../src/voice/whisper';
@@ -54,7 +61,24 @@ interface Result {
   readonly error?: string;
 }
 
+/**
+ * Run something that is supposed to fail, and report whether it did.
+ *
+ * A refusal is the pass here. Written as one helper so a check that quietly
+ * *succeeded* — the dangerous outcome — cannot be mistaken for a green line.
+ */
+async function refuses(what: string, work: () => Promise<unknown>): Promise<string> {
+  try {
+    await work();
+    return `✗ ${what}: accepted, which it must not`;
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return `✓ ${what} refused: ${message.slice(0, 80)}`;
+  }
+}
+
 export default function DiagnosticsScreen(): ReactNode {
+  const ledger = useLedger();
   const [results, setResults] = useState<Result[]>([]);
   const [running, setRunning] = useState(false);
   const [ocr, setOcr] = useState<string[]>([]);
@@ -71,6 +95,8 @@ export default function DiagnosticsScreen(): ReactNode {
   const [captureRunning, setCaptureRunning] = useState(false);
   const [tierLines, setTierLines] = useState<string[]>([]);
   const [tierRunning, setTierRunning] = useState(false);
+  const [failLines, setFailLines] = useState<string[]>([]);
+  const [failRunning, setFailRunning] = useState(false);
 
   /**
    * Transcribe a known recording, rather than whatever the microphone hears.
@@ -214,6 +240,124 @@ export default function DiagnosticsScreen(): ReactNode {
 
     setTierLines(lines);
     setTierRunning(false);
+  };
+
+  /**
+   * Break the backup path on purpose, three ways, and check it holds.
+   *
+   * The archive tests cover corrupt bytes in CI. What only a device can show is
+   * what the *app* does with them: whether a refused restore leaves the ledger
+   * exactly as it was, whether a write killed midway leaves megabytes behind
+   * forever, and whether a backup from a newer version of the app is refused
+   * rather than merged into a schema that cannot hold it.
+   *
+   * Each of these is a real user's worst day. Nothing here is destructive: the
+   * restores are all expected to fail, and the row count is checked before and
+   * after to prove they did nothing.
+   */
+  const runFailures = async (): Promise<void> => {
+    setFailRunning(true);
+    setFailLines([]);
+
+    const lines: string[] = [];
+    const count = async (): Promise<number> =>
+      (await ledger.driver.get<{ n: number }>('SELECT COUNT(*) AS n FROM transactions'))?.n ?? 0;
+
+    try {
+      const sodium = await createNativeSodiumBackend();
+      const salt = generateSalt(sodium);
+      const kek = deriveKek(sodium, 'a real password', salt);
+      const recoveryKey = generateRecoveryKey(sodium);
+      const before = await count();
+      lines.push(`ledger holds ${String(before)} transactions`);
+
+      // Big enough that the encrypted body is most of the file: with a
+      // four-byte payload the header is nearly the whole archive, and a byte
+      // flipped "in the middle" would land in JSON rather than in ciphertext.
+      const payload = new Uint8Array(20_000);
+      for (let i = 0; i < payload.length; i += 1) payload[i] = i % 251;
+
+      const good = writeArchive(
+        sodium,
+        [{ id: 'db', kind: 'db', bytes: payload }],
+        kek,
+        recoveryKey,
+        salt,
+        {
+          appVersion: '0.1.0',
+          schemaVersion: SCHEMA_VERSION,
+          createdAt: Date.now(),
+          kdfParams: KDF_PARAMS,
+        },
+      );
+
+      // 1. A bit flipped in the ciphertext — a failing disk, a truncated
+      // download, a file someone edited. The AEAD tag is what must catch it.
+      const flipped = Uint8Array.from(good.bytes);
+      const inBody = flipped.length - 200;
+      flipped[inBody] = (flipped[inBody] ?? 0) ^ 0xff;
+
+      lines.push(await refuses('flipped bit in the body', () => restoreBackup(ledger, flipped, kek, sodium)));
+
+      // 2. A damaged header, which fails earlier and differently — before any
+      // key is derived, so the message must still be one a person can act on.
+      const damagedHeader = Uint8Array.from(good.bytes);
+      damagedHeader[60] = (damagedHeader[60] ?? 0) ^ 0xff;
+
+      lines.push(await refuses('damaged header', () => restoreBackup(ledger, damagedHeader, kek, sodium)));
+
+      // 3. Truncation: the write that stopped halfway and was renamed anyway.
+      lines.push(
+        await refuses('truncated archive', () =>
+          restoreBackup(ledger, good.bytes.slice(0, good.bytes.length - 500), kek, sodium),
+        ),
+      );
+
+      // 4. An archive from a newer version of the app.
+      const newer = writeArchive(
+        sodium,
+        [{ id: 'db', kind: 'db', bytes: payload }],
+        kek,
+        recoveryKey,
+        salt,
+        {
+          appVersion: '99.0.0',
+          schemaVersion: SCHEMA_VERSION + 1,
+          createdAt: Date.now(),
+          kdfParams: KDF_PARAMS,
+        },
+      );
+
+      lines.push(await refuses('downgrade', () => restoreBackup(ledger, newer.bytes, kek, sodium)));
+
+      // 5. The wrong password, which is the one a user hits by accident.
+      const wrong = deriveKek(sodium, 'not the password', salt);
+      lines.push(await refuses('wrong password', () => restoreBackup(ledger, good.bytes, wrong, sodium)));
+
+      const after = await count();
+      lines.push(
+        after === before
+          ? `✓ ledger untouched: still ${String(after)} transactions`
+          : `✗ ledger changed: ${String(before)} → ${String(after)}`,
+      );
+
+      // 6. A write killed midway leaves a `.partial`. The next backup must
+      // clear it, or a device that dies mid-backup leaks megabytes every time.
+      const planted = `${FileSystem.documentDirectory ?? ''}backups/killed-write.btbk.partial`;
+      await FileSystem.writeAsStringAsync(planted, 'not a real archive');
+      const swept = await sweepPartials();
+      const stillThere = (await FileSystem.getInfoAsync(planted)).exists;
+      lines.push(
+        !stillThere && swept > 0
+          ? `✓ interrupted write swept (${String(swept)} file)`
+          : '✗ interrupted write left behind',
+      );
+    } catch (cause) {
+      lines.push(`✗ failed: ${cause instanceof Error ? cause.message : JSON.stringify(cause)}`);
+    }
+
+    setFailLines(lines);
+    setFailRunning(false);
   };
 
   /**
@@ -537,7 +681,7 @@ export default function DiagnosticsScreen(): ReactNode {
         database this app actually uses.
       </Text>
 
-      <Pressable style={styles.button} onPress={() => void run()} disabled={running}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void run()} disabled={running}>
         <Text style={styles.buttonText}>{running ? 'Running…' : 'Run driver contract'}</Text>
       </Pressable>
 
@@ -549,7 +693,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       )}
 
-      <Pressable
+      <Pressable accessibilityRole="button"
         style={styles.button}
         onPress={() => void runSchedule()}
         disabled={scheduleRunning}
@@ -565,7 +709,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runVoice()} disabled={voiceRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runVoice()} disabled={voiceRunning}>
         <Text style={styles.buttonText}>
           {voiceRunning ? 'Listening…' : 'Transcribe the test recording'}
         </Text>
@@ -577,7 +721,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runCapture()} disabled={captureRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runCapture()} disabled={captureRunning}>
         <Text style={styles.buttonText}>
           {captureRunning ? 'Recording…' : 'Record three seconds and read it'}
         </Text>
@@ -589,7 +733,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runTiers()} disabled={tierRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runTiers()} disabled={tierRunning}>
         <Text style={styles.buttonText}>
           {tierRunning ? 'Scoring…' : 'Score the reading engines'}
         </Text>
@@ -601,7 +745,7 @@ export default function DiagnosticsScreen(): ReactNode {
         </Text>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runCrypto()} disabled={cryptoRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runCrypto()} disabled={cryptoRunning}>
         <Text style={styles.buttonText}>
           {cryptoRunning ? 'Checking…' : 'Run crypto vectors'}
         </Text>
@@ -626,7 +770,7 @@ export default function DiagnosticsScreen(): ReactNode {
           </View>
         ))}
 
-      <Pressable style={styles.button} onPress={() => void runArchive()} disabled={archiveRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runArchive()} disabled={archiveRunning}>
         <Text style={styles.buttonText}>
           {archiveRunning ? 'Writing…' : 'Round-trip a real archive'}
         </Text>
@@ -638,7 +782,19 @@ export default function DiagnosticsScreen(): ReactNode {
         </View>
       ))}
 
-      <Pressable style={styles.button} onPress={() => void runOcr()} disabled={ocrRunning}>
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runFailures()} disabled={failRunning}>
+        <Text style={styles.buttonText}>
+          {failRunning ? 'Breaking…' : 'Break backup and restore on purpose'}
+        </Text>
+      </Pressable>
+
+      {failLines.map((line) => (
+        <View key={line} style={styles.row}>
+          <Text style={line.startsWith('✗') ? styles.fail : styles.pass}>{line}</Text>
+        </View>
+      ))}
+
+      <Pressable accessibilityRole="button" style={styles.button} onPress={() => void runOcr()} disabled={ocrRunning}>
         <Text style={styles.buttonText}>{ocrRunning ? 'Reading…' : 'Run OCR on a known receipt'}</Text>
       </Pressable>
 

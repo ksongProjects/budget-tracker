@@ -5,6 +5,7 @@ import {
   ArchiveError,
   ArchiveVersionError,
   FORMAT_VERSION,
+  UNAUTHENTICATED_HEADER_VERSION,
   MAGIC,
   MAX_FRAME_BYTES,
   NONCE_PREFIX_BYTES,
@@ -144,9 +145,23 @@ export function writeArchive(
     schemaVersion: options.schemaVersion,
   };
 
-  const headerBytes = encoder.encode(JSON.stringify(header));
+  const headerJson = JSON.stringify(header);
+  const headerBytes = encoder.encode(headerJson);
+
+  // The header goes into every frame's associated data, so editing it — the
+  // salt, the creation time, the schema version — invalidates the whole
+  // archive rather than passing unnoticed.
   const frames = bodies.map((body, index) =>
-    sealFrame(sodium, archiveKey, noncePrefix, index, body, index === bodies.length - 1, frameLimit),
+    sealFrame(
+      sodium,
+      archiveKey,
+      noncePrefix,
+      index,
+      body,
+      index === bodies.length - 1,
+      frameLimit,
+      headerJson,
+    ),
   );
 
   // Truncation is caught by the final flag in each frame's associated data:
@@ -195,7 +210,13 @@ export interface ReadResult {
 }
 
 /** Parse and validate the header without needing a secret. */
-export function readHeader(bytes: Uint8Array): { header: ArchiveHeader; bodyOffset: number } {
+export function readHeader(bytes: Uint8Array): {
+  header: ArchiveHeader;
+  bodyOffset: number;
+  /** The header's own bytes, as text — what the frames were sealed against. */
+  headerJson: string;
+  version: number;
+} {
   if (bytes.length < MAGIC.length + 5) {
     throw new ArchiveError('not a backup archive: too short');
   }
@@ -215,11 +236,10 @@ export function readHeader(bytes: Uint8Array): { header: ArchiveHeader; bodyOffs
     throw new ArchiveError('archive is truncated in its header');
   }
 
-  const header = JSON.parse(
-    decoder.decode(bytes.subarray(headerStart, headerStart + headerLength)),
-  ) as ArchiveHeader;
+  const headerJson = decoder.decode(bytes.subarray(headerStart, headerStart + headerLength));
+  const header = JSON.parse(headerJson) as ArchiveHeader;
 
-  return { header, bodyOffset: headerStart + headerLength };
+  return { header, bodyOffset: headerStart + headerLength, headerJson, version };
 }
 
 /**
@@ -234,7 +254,11 @@ export function readArchive(
   bytes: Uint8Array,
   secret: Uint8Array,
 ): ReadResult {
-  const { header, bodyOffset } = readHeader(bytes);
+  const { header, bodyOffset, headerJson, version } = readHeader(bytes);
+
+  // v1 archives were sealed before the header was bound in, and they still have
+  // to open: the backup someone needs is usually the old one.
+  const sealedHeader = version <= UNAUTHENTICATED_HEADER_VERSION ? undefined : headerJson;
 
   const bmk = unwrapBmk(sodium, deserializeBmkWraps(header.bmkWraps), secret);
   if (!bmk) {
@@ -265,7 +289,16 @@ export function readArchive(
     offset += length;
 
     const isFinal = offset >= bytes.length;
-    const body = openFrame(sodium, archiveKey, noncePrefix, counter, ciphertext, isFinal);
+    const body = openFrame(
+      sodium,
+      archiveKey,
+      noncePrefix,
+      counter,
+      ciphertext,
+      isFinal,
+      sealedHeader,
+      version,
+    );
     if (!body) {
       throw new ArchiveError(
         `The backup is damaged: frame ${String(counter)} failed its integrity check.`,

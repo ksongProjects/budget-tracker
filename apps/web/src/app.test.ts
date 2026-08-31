@@ -231,3 +231,63 @@ describe('the backup screen', () => {
     expect(text('#notice')).toContain('Choose a backup file');
   });
 });
+
+/**
+ * What a screen reader and a keyboard get.
+ *
+ * These are cheap to write and cheap to break: a form field whose only name is
+ * a placeholder reads as "edit text, blank" to someone who cannot see the
+ * placeholder, and a status message that is not a live region is never spoken
+ * at all. Both were true here until Phase 10.
+ */
+describe('accessibility', () => {
+  it('gives every input a name that survives typing', async () => {
+    await go('add');
+
+    for (const field of root.querySelectorAll('input')) {
+      const name = field.getAttribute('aria-label') ?? field.labels?.[0]?.textContent ?? '';
+      expect(name.trim()).not.toBe('');
+    }
+  });
+
+  it('announces what just happened', () => {
+    const notice = root.querySelector('#notice');
+
+    expect(notice?.getAttribute('role')).toBe('status');
+    expect(notice?.getAttribute('aria-live')).toBe('polite');
+  });
+
+  it('names the navigation and marks where you are', async () => {
+    await go('summary');
+
+    const bar = root.querySelector('nav');
+    expect(bar?.getAttribute('aria-label')).not.toBe(null);
+    expect(bar?.querySelector('[aria-current="page"]')?.textContent).toBe('Summary');
+  });
+
+  it('uses real buttons, which keyboards already know how to work', async () => {
+    await go('add');
+
+    // Not a div with a click handler: a button is focusable, reachable by tab,
+    // and activated by both Enter and Space without a line of code.
+    const submit = root.querySelector('#submit');
+    expect(submit?.tagName).toBe('BUTTON');
+  });
+
+  it('keeps headings in order, so a screen reader can skim the ledger', async () => {
+    await go('add');
+    const amount = root.querySelector<HTMLInputElement>('#amount');
+    const note = root.querySelector<HTMLInputElement>('#note');
+    if (amount && note) {
+      amount.value = '4.50';
+      note.value = 'coffee';
+      root.querySelector<HTMLButtonElement>('#submit')?.click();
+    }
+
+    await go('ledger');
+    await waitFor(() => root.querySelectorAll('h2').length > 0);
+
+    // Day headings are h2 under the page's own h1; nothing skips a level.
+    expect(root.querySelectorAll('h3').length).toBe(0);
+  });
+});

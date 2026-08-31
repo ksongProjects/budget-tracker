@@ -169,6 +169,7 @@ async function viewFor(root: HTMLElement, current: App): Promise<HTMLElement> {
 
 function nav(): HTMLElement {
   const bar = element('nav');
+  bar.setAttribute('aria-label', 'Screens');
 
   for (const [name, label] of [
     ['ledger', 'Ledger'],
@@ -191,6 +192,11 @@ function nav(): HTMLElement {
 function noticeLine(): HTMLElement {
   const line = element('p', notice);
   line.id = 'notice';
+  // Everything this app has to say about what just happened goes through here —
+  // "Saved.", "Imported 12 entries." — and a message nobody is told about is
+  // the same as no message for anyone not watching that corner of the screen.
+  line.setAttribute('role', 'status');
+  line.setAttribute('aria-live', 'polite');
   return line;
 }
 
@@ -795,6 +801,10 @@ function input(id: string, placeholder: string): HTMLInputElement {
   const field = element('input');
   field.id = id;
   field.placeholder = placeholder;
+  // A placeholder is not a name: it vanishes the moment someone types, and
+  // screen readers are not required to read it at all. The same words, said
+  // where they will always be heard.
+  field.setAttribute('aria-label', placeholder);
   return field;
 }
 

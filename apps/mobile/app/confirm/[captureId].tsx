@@ -235,7 +235,7 @@ export default function ConfirmScreen(): ReactNode {
       )}
 
       {status === 'ready' && offer?.available === true && detail === undefined && !asking && (
-        <Pressable
+        <Pressable accessibilityRole="button"
           style={styles.secondaryButton}
           disabled={assisting}
           onPress={() => {
@@ -263,7 +263,7 @@ export default function ConfirmScreen(): ReactNode {
             Card and account numbers are masked above. This permission covers this one capture.
           </Text>
           <View style={styles.consentButtons}>
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={styles.secondaryButton}
               onPress={() => {
                 setAsking(false);
@@ -271,7 +271,7 @@ export default function ConfirmScreen(): ReactNode {
             >
               <Text style={styles.secondaryText}>Not this time</Text>
             </Pressable>
-            <Pressable
+            <Pressable accessibilityRole="button"
               style={styles.sendButton}
               onPress={() => void assist(textToSend(receiptText))}
             >
@@ -308,7 +308,7 @@ export default function ConfirmScreen(): ReactNode {
       )}
 
       {status === 'ready' && offer?.available === false && (
-        <Pressable
+        <Pressable accessibilityRole="button"
           onPress={() => {
             router.push('/assist');
           }}
@@ -319,13 +319,19 @@ export default function ConfirmScreen(): ReactNode {
         </Pressable>
       )}
 
-      {error !== null && <Text style={styles.error}>{error}</Text>}
+      {error !== null && <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+          style={styles.error}
+        >
+          {error}
+        </Text>}
 
       <View style={styles.keypad}>
         {KEYPAD.map((row) => (
           <View key={row.join()} style={styles.keypadRow}>
             {row.map((key) => (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={key}
                 style={styles.key}
                 accessibilityLabel={key}
@@ -342,7 +348,7 @@ export default function ConfirmScreen(): ReactNode {
         ))}
       </View>
 
-      <Pressable
+      <Pressable accessibilityRole="button"
         onPress={() => void save()}
         disabled={isEmpty(amount) || saving}
         style={[styles.saveButton, (isEmpty(amount) || saving) && styles.saveButtonDisabled]}

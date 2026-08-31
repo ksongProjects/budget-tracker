@@ -5,6 +5,7 @@ import { KDF_PARAMS, deriveKek } from '@budget/crypto';
 import type { SodiumBackend } from '@budget/crypto';
 import {
   archiveName,
+  assertRestorable,
   deserializeWrappedKey,
   readArchive,
   readHeader,
@@ -198,6 +199,12 @@ export async function createBackup(
   // file and a listing from the cloud describe themselves identically.
   const path = `${BACKUP_DIR}${archiveName(ctx.deviceId, createdAt)}`;
 
+  // Before the write, not after. Retention already removes `.partial` files,
+  // but it runs once the archive is on disk — and on a device with no room
+  // left, the write is what fails, so the leftovers from the last killed write
+  // would never be cleared and every backup after it would fail too.
+  await sweepPartials();
+
   // Written to a temporary name and renamed, so a backup interrupted midway
   // never leaves a half-file under a name that looks complete.
   const temporary = `${path}.partial`;
@@ -236,6 +243,11 @@ export async function restoreBackup(
   const backend = sodium ?? (await createNativeSodiumBackend());
   const { header, entries, bmk } = readArchive(backend, archiveBytes, secret);
 
+  // Before anything is written: an archive from a newer app carries rows this
+  // build cannot read, and merging them is a downgrade whose damage shows up
+  // long after the restore looked like it worked.
+  assertRestorable(header, SCHEMA_VERSION);
+
   const snapshot = entries.find((entry) => entry.kind === 'db');
   if (!snapshot) {
     throw new Error('This backup contains no ledger.');
@@ -263,6 +275,16 @@ export async function restoreBackup(
       for (const table of BACKUP_TABLES) {
         rows[table] = await source.all<MergeableRow>(`SELECT * FROM ${table}`);
       }
+    } catch (cause) {
+      // The archive opened, so its frames authenticated — and the thing inside
+      // still is not a database. SQLite's own words for that arrive as
+      // "Call to function 'NativeDatabase.execAsync' has been rejected", which
+      // tells the user nothing they can act on.
+      throw new Error(
+        `This backup's ledger could not be read — the file inside it is damaged. (${
+          cause instanceof Error ? cause.message : String(cause)
+        })`,
+      );
     } finally {
       await source.close();
     }
@@ -356,20 +378,32 @@ export async function deriveArchiveSecret(
  * newest. Interrupted `.partial` files go too.
  */
 export async function pruneBackups(keep = KEEP_BACKUPS): Promise<number> {
+  let removed = await sweepPartials();
+
+  const backups = await listBackups();
+  for (const stale of backups.slice(keep)) {
+    await FileSystem.deleteAsync(stale.path, { idempotent: true });
+    removed += 1;
+  }
+
+  return removed;
+}
+
+/**
+ * Delete the temporary files of writes that never finished.
+ *
+ * A backup that is interrupted — the process killed, the device shut down —
+ * leaves a `.partial` behind, because the code that would have renamed it no
+ * longer exists. Nothing reads those files; they are only megabytes.
+ */
+export async function sweepPartials(): Promise<number> {
   await ensureDir();
   const names = await FileSystem.readDirectoryAsync(BACKUP_DIR);
 
   let removed = 0;
   for (const name of names) {
-    if (name.endsWith('.partial')) {
-      await FileSystem.deleteAsync(`${BACKUP_DIR}${name}`, { idempotent: true });
-      removed += 1;
-    }
-  }
-
-  const backups = await listBackups();
-  for (const stale of backups.slice(keep)) {
-    await FileSystem.deleteAsync(stale.path, { idempotent: true });
+    if (!name.endsWith('.partial')) continue;
+    await FileSystem.deleteAsync(`${BACKUP_DIR}${name}`, { idempotent: true });
     removed += 1;
   }
 

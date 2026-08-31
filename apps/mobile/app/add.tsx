@@ -124,13 +124,19 @@ export default function AddScreen(): ReactNode {
         onSelect={setCategoryId}
       />
 
-      {error !== null && <Text style={styles.error}>{error}</Text>}
+      {error !== null && <Text
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+          style={styles.error}
+        >
+          {error}
+        </Text>}
 
       <View style={styles.keypad}>
         {KEYPAD.map((row) => (
           <View key={row.join()} style={styles.keypadRow}>
             {row.map((key) => (
-              <Pressable
+              <Pressable accessibilityRole="button"
                 key={key}
                 style={styles.key}
                 accessibilityLabel={key}
@@ -149,7 +155,7 @@ export default function AddScreen(): ReactNode {
         ))}
       </View>
 
-      <Pressable
+      <Pressable accessibilityRole="button"
         onPress={() => void save()}
         disabled={isEmpty(amount) || saving}
         style={[styles.saveButton, (isEmpty(amount) || saving) && styles.saveButtonDisabled]}
@@ -180,7 +186,7 @@ function CategoryPicker({
       {categories.map((category) => {
         const active = category.id === selected;
         return (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={category.id}
             onPress={() => {
               onSelect(active ? null : category.id);

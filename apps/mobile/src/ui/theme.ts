@@ -1,18 +1,7 @@
 import { StyleSheet } from 'react-native';
+import { colors } from './colors';
 
-export const colors = {
-  background: '#0f1115',
-  surface: '#171a21',
-  surfaceRaised: '#1f232c',
-  border: '#2a2f3a',
-  text: '#f2f4f8',
-  textMuted: '#9aa3b2',
-  textFaint: '#646d7d',
-  accent: '#6ea8fe',
-  accentText: '#0f1115',
-  pending: '#e0a458',
-  danger: '#e06c75',
-} as const;
+export { MIN_TOUCH_TARGET, colors, contrastRatio } from './colors';
 
 export const spacing = {
   xs: 4,

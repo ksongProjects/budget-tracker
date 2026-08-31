@@ -62,7 +62,7 @@ export default function LedgerScreen(): ReactNode {
           Everything you record stays on this device.
         </Text>
         <Link href="/add" asChild>
-          <Pressable style={styles.primaryButton}>
+          <Pressable accessibilityRole="button" style={styles.primaryButton}>
             <Text style={styles.primaryButtonText}>Add a spend</Text>
           </Pressable>
         </Link>
@@ -94,17 +94,17 @@ export default function LedgerScreen(): ReactNode {
 
       <View style={styles.fabRow}>
         <Link href="/add" asChild>
-          <Pressable style={styles.fabSecondary} accessibilityLabel="Type a spend">
+          <Pressable accessibilityRole="button" style={styles.fabSecondary} accessibilityLabel="Type a spend">
             <Text style={styles.fabSecondaryText}>+</Text>
           </Pressable>
         </Link>
         <Link href="/voice" asChild>
-          <Pressable style={styles.fabSecondary} accessibilityLabel="Say a spend">
+          <Pressable accessibilityRole="button" style={styles.fabSecondary} accessibilityLabel="Say a spend">
             <Text style={styles.fabSecondaryText}>🎙</Text>
           </Pressable>
         </Link>
         <Link href="/capture" asChild>
-          <Pressable style={styles.fab} accessibilityLabel="Photograph a receipt">
+          <Pressable accessibilityRole="button" style={styles.fab} accessibilityLabel="Photograph a receipt">
             <Text style={styles.fabText}>◉</Text>
           </Pressable>
         </Link>
@@ -171,7 +171,7 @@ function TransactionRow({
   const pending = transaction.confirmedAt === null;
 
   return (
-    <Pressable onPress={onPress} style={styles.row}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.row}>
       <View style={styles.rowMain}>
         <Text style={text.body} numberOfLines={1}>
           {transaction.note ?? 'Untitled'}
@@ -209,7 +209,7 @@ function BackupNudge({ verdict }: { verdict: BackupVerdict | undefined }): React
       {/* Flattened, not an array: expo-router refuses to pass a style array
           through `asChild`, and it refuses at render time on a screen the user
           is looking at. */}
-      <Pressable
+      <Pressable accessibilityRole="button"
         style={StyleSheet.flatten([
           styles.nudge,
           verdict.health === 'urgent' ? styles.nudgeUrgent : styles.nudgeWarn,

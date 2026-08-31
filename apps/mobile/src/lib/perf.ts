@@ -29,6 +29,10 @@ export const BUDGETS: Readonly<Record<string, number>> = {
   'seed 10k transactions': 60_000,
   'ledger page query over 10k rows': 50,
   'summary by category over 10k rows': 50,
+  // Shutter to a number on screen: OCR plus the tier-2 rules.
+  'shutter to provisional total': 500,
+  // A typical ledger, encrypted and written to disk.
+  'backup write': 2000,
 };
 
 /** Time one operation. Returns the value alongside the duration. */

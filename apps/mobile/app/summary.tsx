@@ -56,7 +56,7 @@ export default function SummaryScreen(): ReactNode {
 
       <View style={styles.tabs}>
         {(['category', 'month'] as const).map((option) => (
-          <Pressable
+          <Pressable accessibilityRole="button"
             key={option}
             onPress={() => {
               setGroupBy(option);
