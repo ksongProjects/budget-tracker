@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
+import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
 import type { RepositoryContext } from '@budget/db';
 import { toCsv, toReportHtml } from '@budget/report';
@@ -143,6 +144,38 @@ export async function shareExport(path: string): Promise<boolean> {
   await Sharing.shareAsync(path, {
     mimeType: path.endsWith('.pdf') ? 'application/pdf' : 'text/csv',
     UTI: path.endsWith('.pdf') ? 'com.adobe.pdf' : 'public.comma-separated-values-text',
+  });
+
+  return true;
+}
+
+/**
+ * Hand the export to the phone's mail app, addressed and attached.
+ *
+ * The app sends nothing itself: it opens the composer, and the user presses
+ * send. There are no credentials here, no server of ours in the path, and
+ * nothing leaves until a person has looked at what is about to leave — which is
+ * the same rule every other outbound path in this app follows.
+ *
+ * Returns false when the phone has no mail account set up, so the screen can
+ * say that rather than appearing to do nothing.
+ */
+export async function mailExport(
+  path: string,
+  options: { readonly to?: string | null; readonly name?: string } = {},
+): Promise<boolean> {
+  if (!(await MailComposer.isAvailableAsync())) return false;
+
+  const kind = path.endsWith('.pdf') ? 'report' : 'CSV';
+  const who = options.name?.trim();
+
+  await MailComposer.composeAsync({
+    ...(options.to === undefined || options.to === null || options.to === '' ? {} : { recipients: [options.to] }),
+    subject: `Spending ${kind}${who === undefined || who === '' ? '' : ` — ${who}`}`,
+    body:
+      `Attached is a spending ${kind} exported from TXNS on ` +
+      `${new Date().toLocaleDateString()}.`,
+    attachments: [path],
   });
 
   return true;

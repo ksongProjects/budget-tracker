@@ -4,6 +4,7 @@ import {
   AccountRepository,
   CategoryRepository,
   MerchantRepository,
+  ProfileRepository,
   TransactionRepository,
   migrate,
   systemClock,
@@ -25,6 +26,7 @@ export interface Ledger extends RepositoryContext {
   readonly categories: CategoryRepository;
   readonly accounts: AccountRepository;
   readonly merchants: MerchantRepository;
+  readonly profile: ProfileRepository;
   readonly driver: SqliteDriver;
   readonly deviceId: DeviceId;
 }
@@ -82,6 +84,7 @@ export function LedgerProvider({ children }: { children: ReactNode }): ReactNode
             categories: new CategoryRepository(ctx),
             accounts: new AccountRepository(ctx),
             merchants: new MerchantRepository(ctx),
+            profile: new ProfileRepository(ctx),
           },
         });
       } catch (error) {

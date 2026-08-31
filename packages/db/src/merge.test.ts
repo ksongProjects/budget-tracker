@@ -374,3 +374,48 @@ describe('a merge that fails partway', () => {
     ).rejects.toThrow();
   });
 });
+
+/**
+ * The profile is ledger data, not a device setting.
+ *
+ * Someone restoring onto a new phone has just lost the old one. Asking them to
+ * type their name and pick a currency again, on that day, to see their own
+ * money, is the wrong moment for a form.
+ */
+describe('merging the profile', () => {
+  it('arrives with a restore', async () => {
+    await mergeAll(ctx, {
+      profile: [
+        row({
+          id: 'profile',
+          display_name: 'Sam',
+          email: 'sam@example.com',
+          default_currency: 'EUR',
+          deleted_at: null,
+        }),
+      ],
+    });
+
+    const found = await driver.get<{ display_name: string; default_currency: string }>(
+      'SELECT display_name, default_currency FROM profile',
+    );
+
+    expect(found).toMatchObject({ display_name: 'Sam', default_currency: 'EUR' });
+  });
+
+  it('keeps the newer of two, like every other row', async () => {
+    const base = {
+      id: 'profile',
+      display_name: 'Old name',
+      email: null,
+      default_currency: 'USD',
+      deleted_at: null,
+    };
+
+    await mergeAll(ctx, { profile: [row({ ...base, rev: 2 })] });
+    await mergeAll(ctx, { profile: [row({ ...base, display_name: 'Older', rev: 1 })] });
+
+    const found = await driver.get<{ display_name: string }>('SELECT display_name FROM profile');
+    expect(found?.display_name).toBe('Old name');
+  });
+});

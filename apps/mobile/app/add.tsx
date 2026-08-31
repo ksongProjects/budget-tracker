@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { CurrencySchema, now, uuidv7 } from '@budget/schema';
 import type { Category, CategoryId, MinorUnits } from '@budget/schema';
 import { useLedger, useQuery } from '../src/db/provider';
+import { useDefaultCurrency } from '../src/profile/context';
 import {
   clearAmount,
   displayAmount,
@@ -17,7 +18,6 @@ import {
 } from '../src/lib/amount-entry';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
-const DEFAULT_CURRENCY = CurrencySchema.parse('USD');
 
 const KEYPAD = [
   ['1', '2', '3'],
@@ -38,6 +38,10 @@ export default function AddScreen(): ReactNode {
   // Voice hands the amount over as minor units rather than as text, so the
   // keypad starts in the same state it would have reached by being typed —
   // editable, backspaceable, and not a string to be re-parsed.
+  // The currency the user chose to record in, rather than a constant: someone
+  // who set up the app in euros should not have to change it on every spend.
+  const DEFAULT_CURRENCY = useDefaultCurrency();
+
   const spoken = useLocalSearchParams<{ amountMinor?: string; currency?: string; note?: string }>();
   const spokenCurrency =
     spoken.currency === undefined

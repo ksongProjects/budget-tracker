@@ -2,11 +2,13 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLedger } from '../src/db/provider';
+import { useProfileState } from '../src/profile/context';
 import {
   clearExports,
   exportCsv,
   exportPdf,
   rangeLabel,
+  mailExport,
   shareExport,
 } from '../src/export/service';
 import type { ExportRange, ExportResult } from '../src/export/service';
@@ -23,6 +25,7 @@ const RANGES: readonly ExportRange[] = ['all', 'this-year', 'last-90-days'];
  */
 export default function ExportScreen(): ReactNode {
   const ledger = useLedger();
+  const { profile } = useProfileState();
 
   const [range, setRange] = useState<ExportRange>('all');
   const [busy, setBusy] = useState(false);
@@ -57,6 +60,30 @@ export default function ExportScreen(): ReactNode {
     try {
       const shared = await shareExport(result.path);
       if (!shared) setError('This device has no way to share a file.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  /**
+   * Mail it to the address on the profile.
+   *
+   * Opens the phone's own composer, prefilled. Nothing is sent by this app —
+   * the user presses send, having seen exactly what is attached.
+   */
+  const mail = async (): Promise<void> => {
+    if (result === null) return;
+
+    setError(null);
+    try {
+      const opened = await mailExport(result.path, {
+        to: profile?.email ?? null,
+        ...(profile?.displayName === undefined ? {} : { name: profile.displayName }),
+      });
+
+      if (!opened) {
+        setError('This phone has no mail app set up. Use Share instead.');
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -107,8 +134,15 @@ export default function ExportScreen(): ReactNode {
 
       {result !== null && (
         <>
-          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void share()}>
-            <Text style={styles.primaryText}>Share the {result.kind}</Text>
+          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void mail()}>
+            <Text style={styles.primaryText}>
+              {profile?.email === null || profile?.email === undefined
+                ? `Email the ${result.kind}`
+                : `Email the ${result.kind} to ${profile.email}`}
+            </Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void share()}>
+            <Text style={styles.secondaryText}>Share the {result.kind}</Text>
           </Pressable>
           <Pressable accessibilityRole="button" style={styles.quiet} onPress={() => void discard()}>
             <Text style={styles.quietText}>Delete the files from this device</Text>

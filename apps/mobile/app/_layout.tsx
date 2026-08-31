@@ -5,19 +5,29 @@
 import 'react-native-get-random-values';
 import { Link, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { LedgerProvider, useLedgerState } from '../src/db/provider';
+import { ProfileProvider, useProfileState } from '../src/profile/context';
+import { ProfileSetup } from '../src/profile/setup';
 import { registerAutoBackupTask, useAutoBackup } from '../src/backup/auto';
+import { CircleUser, decorative } from '../src/ui/icons';
 import { colors, spacing, text } from '../src/ui/theme';
 
 export default function RootLayout(): ReactNode {
   return (
-    <LedgerProvider>
-      <StatusBar style="light" />
-      <LedgerGate />
-    </LedgerProvider>
+    // The setup screen renders in place of the navigator, so it cannot rely on
+    // the one expo-router installs around a Stack.
+    <SafeAreaProvider>
+      <LedgerProvider>
+        <ProfileProvider>
+          <StatusBar style="light" />
+          <LedgerGate />
+        </ProfileProvider>
+      </LedgerProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -61,6 +71,32 @@ function LedgerGate(): ReactNode {
     );
   }
 
+  return <SetupGate />;
+}
+
+/**
+ * Nobody sees a ledger before the app knows whose it is.
+ *
+ * Held here rather than redirected from the first screen: a redirect flashes
+ * the screen it is redirecting away from, and the very first thing a new user
+ * would see would be an empty list belonging to nobody. The rest of the app —
+ * every route, the header, the tabs — appears only once there is a profile.
+ */
+function SetupGate(): ReactNode {
+  const { status, profile } = useProfileState();
+
+  if (status === 'loading') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (profile === undefined) {
+    return <ProfileSetup />;
+  }
+
   return (
     <Stack
       screenOptions={{
@@ -73,18 +109,17 @@ function LedgerGate(): ReactNode {
       <Stack.Screen
         name="index"
         options={{
-          title: 'Ledger',
-          // Backup and Export are otherwise unreachable without a deep link,
-          // and a backup nobody can find is a backup nobody sets up.
-          headerRight: () => (
-            <View style={styles.headerLinks}>
-              <HeaderLink href="/export" label="Export" />
-              <HeaderLink href="/backup" label="Backup" />
-            </View>
-          ),
+          // The app's name, on the screen the app is about. Everything else —
+          // backup, export, the model settings — lives one tap away behind the
+          // avatar, rather than as a row of links that grows every phase.
+          title: 'TXNS',
+          headerTitleStyle: { color: colors.text, fontSize: 22, fontWeight: '800' },
+          headerRight: () => <ProfileButton />,
         }}
       />
       <Stack.Screen name="add" options={{ title: 'New spend', presentation: 'modal' }} />
+      <Stack.Screen name="profile" options={{ title: 'Profile' }} />
+      <Stack.Screen name="import" options={{ title: 'Import a statement' }} />
       <Stack.Screen name="summary" options={{ title: 'Summary' }} />
       <Stack.Screen name="transaction/[id]" options={{ title: 'Spend' }} />
       <Stack.Screen name="capture" options={{ title: 'Photograph receipt' }} />
@@ -99,19 +134,18 @@ function LedgerGate(): ReactNode {
   );
 }
 
-function HeaderLink({ href, label }: { href: '/export' | '/backup'; label: string }): ReactNode {
+/** The way to everything that is not a transaction: profile, backup, export, settings. */
+function ProfileButton(): ReactNode {
   return (
-    <Link href={href} asChild>
-      <Pressable accessibilityRole="button" hitSlop={8}>
-        <Text style={styles.headerLink}>{label}</Text>
+    <Link href="/profile" asChild>
+      <Pressable accessibilityRole="button" accessibilityLabel="Profile and settings" hitSlop={12}>
+        <CircleUser {...decorative({ size: 28, color: colors.accent })} />
       </Pressable>
     </Link>
   );
 }
 
 const styles = StyleSheet.create({
-  headerLinks: { flexDirection: 'row', gap: spacing.md },
-  headerLink: { color: colors.accent, fontSize: 15, fontWeight: '600' },
   center: {
     flex: 1,
     alignItems: 'center',
