@@ -7,6 +7,7 @@
 export * from './format.js';
 export * from './naming.js';
 export * from './archive.js';
+export * from './restorable.js';
 export * from './cloud.js';
 export * from './drive.js';
 export * from './fake-drive.js';

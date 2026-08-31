@@ -330,3 +330,47 @@ describe('mergeAll', () => {
     expect(stats['merchants']).toBeUndefined();
   });
 });
+
+/**
+ * What a restore does when something goes wrong halfway.
+ *
+ * A restore merges seven tables in one pass. If the fourth one fails, the three
+ * before it must not remain — a ledger holding half of someone's backup is
+ * worse than one holding none of it, because nothing tells the user which half
+ * they got. The transaction around `mergeAll` is what guarantees that, and this
+ * is the test that says so.
+ */
+describe('a merge that fails partway', () => {
+  it('leaves the ledger exactly as it was', async () => {
+    await mergeAll(ctx, {
+      merchants: [row({ id: 'm-existing', canonical_name: 'Existing', deleted_at: null })],
+    });
+
+    const before = await driver.all<{ id: string }>('SELECT id FROM merchants ORDER BY id');
+
+    await expect(
+      mergeAll(ctx, {
+        merchants: [row({ id: 'm-new', canonical_name: 'Arrives first', deleted_at: null })],
+        // A transaction row pointing at a capture that is not in the archive.
+        // The foreign key fails, and it fails *after* the merchant above has
+        // already been inserted inside the same transaction.
+        transactions: [txn({ id: 't-broken', capture_id: 'capture-that-does-not-exist' })],
+      }),
+    ).rejects.toThrow();
+
+    const after = await driver.all<{ id: string }>('SELECT id FROM merchants ORDER BY id');
+
+    expect(after).toEqual(before);
+    expect(await driver.all('SELECT id FROM transactions')).toEqual([]);
+  });
+
+  it('reports the failure rather than returning partial statistics', async () => {
+    // Silently returning "3 tables merged" for a restore that did not happen is
+    // the failure mode this rules out: the screen would say it worked.
+    await expect(
+      mergeAll(ctx, {
+        transactions: [txn({ id: 't-broken', capture_id: 'nope' })],
+      }),
+    ).rejects.toThrow();
+  });
+});
