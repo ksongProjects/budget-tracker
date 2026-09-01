@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLedger } from '../src/db/provider';
 import { useProfileState } from '../src/profile/context';
 import {
@@ -12,7 +12,15 @@ import {
   shareExport,
 } from '../src/export/service';
 import type { ExportRange, ExportResult } from '../src/export/service';
-import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
+import {
+  Chip,
+  ChipRow,
+  FormError,
+  PrimaryButton,
+  QuietButton,
+  SecondaryButton,
+} from '../src/ui/form';
+import { colors, radius, spacing, text } from '../src/ui/theme';
 
 const RANGES: readonly ExportRange[] = ['all', 'this-year', 'last-90-days'];
 
@@ -107,57 +115,54 @@ export default function ExportScreen(): ReactNode {
       </View>
 
       <Text style={text.heading}>What to include</Text>
-      <View style={styles.rangeRow}>
+      <ChipRow>
         {RANGES.map((option) => (
-          <Pressable accessibilityRole="button"
+          <Chip
             key={option}
-            style={[styles.range, option === range && styles.rangeActive]}
+            label={rangeLabel(option)}
+            selected={option === range}
             onPress={() => {
               setRange(option);
               setResult(null);
               setStatus(null);
             }}
-          >
-            <Text style={[styles.rangeText, option === range && styles.rangeTextActive]}>
-              {rangeLabel(option)}
-            </Text>
-          </Pressable>
+          />
         ))}
-      </View>
+      </ChipRow>
 
-      <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void run('CSV')} disabled={busy}>
-        <Text style={styles.primaryText}>{busy ? 'Working…' : 'Export CSV'}</Text>
-      </Pressable>
-      <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void run('PDF')} disabled={busy}>
-        <Text style={styles.secondaryText}>Export PDF report</Text>
-      </Pressable>
+      <PrimaryButton
+        label="Export CSV"
+        busyLabel="Working…"
+        busy={busy}
+        onPress={() => void run('CSV')}
+      />
+      <SecondaryButton
+        label="Export PDF report"
+        busyLabel="Working…"
+        busy={busy}
+        onPress={() => void run('PDF')}
+      />
 
       {result !== null && (
         <>
-          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void mail()}>
-            <Text style={styles.primaryText}>
-              {profile?.email === null || profile?.email === undefined
+          <PrimaryButton
+            label={
+              profile?.email === null || profile?.email === undefined
                 ? `Email the ${result.kind}`
-                : `Email the ${result.kind} to ${profile.email}`}
-            </Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void share()}>
-            <Text style={styles.secondaryText}>Share the {result.kind}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" style={styles.quiet} onPress={() => void discard()}>
-            <Text style={styles.quietText}>Delete the files from this device</Text>
-          </Pressable>
+                : `Email the ${result.kind} to ${profile.email}`
+            }
+            onPress={() => void mail()}
+          />
+          <SecondaryButton label={`Share the ${result.kind}`} onPress={() => void share()} />
+          <QuietButton
+            label="Delete the files from this device"
+            onPress={() => void discard()}
+          />
         </>
       )}
 
       {status !== null && <Text style={styles.status}>{status}</Text>}
-      {error !== null && <Text
-          accessibilityRole="alert"
-          accessibilityLiveRegion="assertive"
-          style={styles.error}
-        >
-          {error}
-        </Text>}
+      <FormError message={error} />
     </ScrollView>
   );
 }
@@ -180,40 +185,5 @@ const styles = StyleSheet.create({
   },
   warnTitle: { color: colors.pending, fontWeight: '700', fontSize: 16 },
   warnBody: { color: colors.textMuted, fontSize: 14 },
-  rangeRow: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  range: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  rangeActive: { borderColor: colors.accent, backgroundColor: colors.surfaceRaised },
-  rangeText: { color: colors.textMuted },
-  rangeTextActive: { color: colors.text, fontWeight: '600' },
-  primary: {
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  primaryText: { color: colors.accentText, fontWeight: '600', fontSize: 16 },
-  secondary: {
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryText: { color: colors.text, fontWeight: '600' },
-  quiet: {
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Small print, full-size target: the text is quiet, the control is not.
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  quietText: { color: colors.textMuted },
   status: { color: colors.text },
-  error: { color: colors.danger },
 });

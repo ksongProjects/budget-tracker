@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { formatRecoveryKey, generateRecoveryKey, parseRecoveryKey } from '@budget/crypto';
@@ -20,7 +20,15 @@ import { signIn, signOut } from '../src/cloud/auth';
 import { cloudStatus, downloadRemote, listRemote, uploadNewestBackup } from '../src/cloud/sync';
 import type { CloudStatus } from '../src/cloud/sync';
 import type { RemoteArchive } from '@budget/backup';
-import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
+import {
+  FormError,
+  FormWarning,
+  PrimaryButton,
+  QuietButton,
+  SecondaryButton,
+  TextField,
+} from '../src/ui/form';
+import { colors, radius, spacing, text } from '../src/ui/theme';
 
 type Stage =
   | 'loading'
@@ -292,19 +300,15 @@ export default function BackupScreen(): ReactNode {
             Backups are the only copy of your data. There is no server and no account —
             if you lose your phone without a backup, the ledger is gone.
           </Text>
-          <Pressable accessibilityRole="button" style={styles.primary} onPress={begin}>
-            <Text style={styles.primaryText}>Set up backup</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button"
-            style={styles.secondary}
+          <PrimaryButton label="Set up backup" onPress={begin} />
+          <SecondaryButton
+            label="I already have a backup"
             onPress={() => {
               setStage('restore');
               setError(null);
               setStatus(null);
             }}
-          >
-            <Text style={styles.secondaryText}>I already have a backup</Text>
-          </Pressable>
+          />
         </>
       )}
 
@@ -314,17 +318,20 @@ export default function BackupScreen(): ReactNode {
           <Text style={text.muted}>
             This password encrypts every backup. It never leaves this device.
           </Text>
-          <TextInput
+          <TextField
+            label="Backup password"
             value={password}
             onChangeText={setPassword}
             placeholder="Backup password"
-            placeholderTextColor={colors.textFaint}
-            secureTextEntry
-            style={styles.input}
+            autoCapitalize="none"
+            secure
           />
-          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void mintRecoveryKey()} disabled={busy}>
-            <Text style={styles.primaryText}>{busy ? 'Working…' : 'Continue'}</Text>
-          </Pressable>
+          <PrimaryButton
+            label="Continue"
+            busyLabel="Working…"
+            busy={busy}
+            onPress={() => void mintRecoveryKey()}
+          />
         </>
       )}
 
@@ -334,26 +341,19 @@ export default function BackupScreen(): ReactNode {
           <View style={styles.keyBox}>
             <Text style={styles.keyText}>{printed}</Text>
           </View>
-          <Text style={styles.warn}>
-            This is shown once. If you forget your password and lose this key, your backups
-            cannot be opened by you, by us, or by anyone. There is no reset.
-          </Text>
-          <Pressable accessibilityRole="button"
-            style={styles.secondary}
+          <FormWarning message="This is shown once. If you forget your password and lose this key, your backups cannot be opened by you, by us, or by anyone. There is no reset." />
+          <SecondaryButton
+            label="Copy to clipboard"
             onPress={() => void Clipboard.setStringAsync(printed)}
-          >
-            <Text style={styles.secondaryText}>Copy to clipboard</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button"
-            style={styles.primary}
+          />
+          <PrimaryButton
+            label="I have saved it"
             onPress={() => {
               setStage('recovery-verify');
               setTypedBack('');
               setError(null);
             }}
-          >
-            <Text style={styles.primaryText}>I have saved it</Text>
-          </Pressable>
+          />
         </>
       )}
 
@@ -364,26 +364,26 @@ export default function BackupScreen(): ReactNode {
             The last group of your recovery key — the {String(expectedGroup.length)} characters
             after the final dash — to confirm you really have it.
           </Text>
-          <TextInput
+          <TextField
+            label="Last group"
             value={typedBack}
             onChangeText={setTypedBack}
             placeholder="Last group"
-            placeholderTextColor={colors.textFaint}
             autoCapitalize="characters"
-            style={styles.input}
           />
-          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void verifyAndBackUp()} disabled={busy}>
-            <Text style={styles.primaryText}>{busy ? 'Backing up…' : 'Confirm and back up'}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button"
-            style={styles.secondary}
+          <PrimaryButton
+            label="Confirm and back up"
+            busyLabel="Backing up…"
+            busy={busy}
+            onPress={() => void verifyAndBackUp()}
+          />
+          <SecondaryButton
+            label="Show the key again"
             onPress={() => {
               setStage('recovery-shown');
               setError(null);
             }}
-          >
-            <Text style={styles.secondaryText}>Show the key again</Text>
-          </Pressable>
+          />
         </>
       )}
 
@@ -401,20 +401,21 @@ export default function BackupScreen(): ReactNode {
             {String(MIN_INTERVAL_HOURS)} hours and only when something changed. Neither your
             password nor your recovery key is needed for it.
           </Text>
-          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void backUpAgain()} disabled={busy}>
-            <Text style={styles.primaryText}>{busy ? 'Working…' : 'Back up now'}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button"
-            style={styles.secondary}
+          <PrimaryButton
+            label="Back up now"
+            busyLabel="Working…"
+            busy={busy}
+            onPress={() => void backUpAgain()}
+          />
+          <SecondaryButton
+            label="Restore a backup"
+            disabled={busy}
             onPress={() => {
               setStage('restore');
               setError(null);
               setStatus(null);
             }}
-            disabled={busy}
-          >
-            <Text style={styles.secondaryText}>Restore a backup</Text>
-          </Pressable>
+          />
 
           <View style={styles.divider} />
           <Text style={text.heading}>Google Drive</Text>
@@ -431,19 +432,19 @@ export default function BackupScreen(): ReactNode {
                   : `Last upload ${new Date(cloud.lastUploadAt).toLocaleString()}.`}
               </Text>
               {cloud.lastError !== undefined && (
-                <Text style={styles.warn}>Last attempt failed: {cloud.lastError}</Text>
+                <FormWarning message={`Last attempt failed: ${cloud.lastError}`} />
               )}
               <Text style={text.faint}>
                 Drive holds encrypted archives in a private folder. Google cannot read them,
                 and cannot help you open them if you lose both your password and your
                 recovery key.
               </Text>
-              <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void uploadNow()} disabled={busy}>
-                <Text style={styles.secondaryText}>Upload the newest backup</Text>
-              </Pressable>
-              <Pressable accessibilityRole="button" style={styles.quiet} onPress={() => void disconnectDrive()} disabled={busy}>
-                <Text style={styles.quietText}>Disconnect Drive</Text>
-              </Pressable>
+              <SecondaryButton
+                label="Upload the newest backup"
+                disabled={busy}
+                onPress={() => void uploadNow()}
+              />
+              <QuietButton label="Disconnect Drive" onPress={() => void disconnectDrive()} />
             </>
           ) : (
             <>
@@ -451,9 +452,11 @@ export default function BackupScreen(): ReactNode {
                 Backups on this device do not survive this device. Connecting Drive uploads
                 each new archive, still encrypted, to a folder only this app can see.
               </Text>
-              <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void connectDrive()} disabled={busy}>
-                <Text style={styles.secondaryText}>Connect Google Drive</Text>
-              </Pressable>
+              <SecondaryButton
+                label="Connect Google Drive"
+                disabled={busy}
+                onPress={() => void connectDrive()}
+              />
             </>
           )}
         </>
@@ -466,25 +469,24 @@ export default function BackupScreen(): ReactNode {
             Your current entries are kept. Restoring merges the backup into this ledger and
             never removes anything newer.
           </Text>
-          <TextInput
+          <TextField
+            label="Backup password or recovery key"
             value={restoreSecret}
             onChangeText={setRestoreSecret}
             placeholder="Backup password or recovery key"
-            placeholderTextColor={colors.textFaint}
             autoCapitalize="none"
-            autoCorrect={false}
-            style={styles.input}
+            secure
           />
-          <Pressable accessibilityRole="button"
-            style={styles.primary}
+          <PrimaryButton
+            label="Choose a backup file"
+            busyLabel="Restoring…"
+            busy={busy}
             onPress={() => void runRestore('file')}
-            disabled={busy}
-          >
-            <Text style={styles.primaryText}>{busy ? 'Restoring…' : 'Choose a backup file'}</Text>
-          </Pressable>
+          />
           {existing.count > 0 && (
-            <Pressable accessibilityRole="button"
-              style={styles.secondary}
+            <SecondaryButton
+              label="Use the latest backup on this device"
+              disabled={busy}
               onPress={() => {
                 Alert.alert(
                   'Restore the latest backup on this device?',
@@ -495,18 +497,15 @@ export default function BackupScreen(): ReactNode {
                   ],
                 );
               }}
-              disabled={busy}
-            >
-              <Text style={styles.secondaryText}>Use the latest backup on this device</Text>
-            </Pressable>
+            />
           )}
           {cloud?.signedIn === true && (
             <>
-              <Pressable accessibilityRole="button" style={styles.secondary} onPress={() => void loadRemote()} disabled={busy}>
-                <Text style={styles.secondaryText}>
-                  {remote.length === 0 ? 'Look on Google Drive' : 'Refresh the Drive list'}
-                </Text>
-              </Pressable>
+              <SecondaryButton
+                label={remote.length === 0 ? 'Look on Google Drive' : 'Refresh the Drive list'}
+                disabled={busy}
+                onPress={() => void loadRemote()}
+              />
               {remote.map((archive) => (
                 <Pressable accessibilityRole="button"
                   key={archive.id}
@@ -533,20 +532,12 @@ export default function BackupScreen(): ReactNode {
             </>
           )}
 
-          <Pressable accessibilityRole="button" style={styles.quiet} onPress={() => void refresh()} disabled={busy}>
-            <Text style={styles.quietText}>Back</Text>
-          </Pressable>
+          <QuietButton label="Back" onPress={() => void refresh()} />
         </>
       )}
 
       {status !== null && <Text style={styles.status}>{status}</Text>}
-      {error !== null && <Text
-          accessibilityRole="alert"
-          accessibilityLiveRegion="assertive"
-          style={styles.error}
-        >
-          {error}
-        </Text>}
+      <FormError message={error} />
     </ScrollView>
   );
 }
@@ -590,14 +581,6 @@ function describeRestoreFailure(cause: unknown): string {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.md, gap: spacing.md },
-  input: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
   keyBox: {
     backgroundColor: colors.surfaceRaised,
     borderRadius: radius.md,
@@ -610,28 +593,6 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     textAlign: 'center',
   },
-  primary: {
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  primaryText: { color: colors.accentText, fontWeight: '600', fontSize: 16 },
-  secondary: {
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryText: { color: colors.text, fontWeight: '600' },
-  quiet: {
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Small print, full-size target: the text is quiet, the control is not.
-    minHeight: MIN_TOUCH_TARGET,
-  },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
   remoteRow: {
     backgroundColor: colors.surface,
@@ -639,8 +600,5 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.xs,
   },
-  quietText: { color: colors.textMuted },
-  warn: { color: colors.pending },
   status: { color: colors.text },
-  error: { color: colors.danger },
 });

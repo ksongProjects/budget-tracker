@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   AccountRepository,
   CategoryRepository,
+  LineItemRepository,
   MerchantRepository,
   ProfileRepository,
   TransactionRepository,
@@ -23,6 +24,7 @@ import { loadDeviceId } from './device-id';
 
 export interface Ledger extends RepositoryContext {
   readonly transactions: TransactionRepository;
+  readonly lineItems: LineItemRepository;
   readonly categories: CategoryRepository;
   readonly accounts: AccountRepository;
   readonly merchants: MerchantRepository;
@@ -81,6 +83,7 @@ export function LedgerProvider({ children }: { children: ReactNode }): ReactNode
           ledger: {
             ...ctx,
             transactions: new TransactionRepository(ctx),
+            lineItems: new LineItemRepository(ctx),
             categories: new CategoryRepository(ctx),
             accounts: new AccountRepository(ctx),
             merchants: new MerchantRepository(ctx),

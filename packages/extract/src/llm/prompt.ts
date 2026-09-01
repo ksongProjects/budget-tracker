@@ -27,7 +27,13 @@ const RULES = [
 const RECEIPT_TASK =
   'The text is OCR of a shop receipt, so it may be misaligned, may repeat lines, ' +
   'and may split a label from its amount. Read the merchant, the date, the ' +
-  'total actually charged, the tax, the tip, and the purchased line items.';
+  'total actually charged, the tax, the tip, and the purchased line items. ' +
+  // The confirm screen sends the table the rules already built, not raw OCR:
+  // the rows it could not price are marked, which turns "read this receipt"
+  // into the far easier "these three rows have no number".
+  'It may arrive as tab-separated rows of id, label and amount, where a "?" ' +
+  'marks a value OCR could not read. Fill those in from the surrounding text ' +
+  'and repeat the rows that already have an amount exactly as given.';
 
 const UTTERANCE_TASK =
   'The text is a transcript of someone saying what they spent, out loud, in one ' +

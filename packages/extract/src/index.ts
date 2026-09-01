@@ -7,6 +7,7 @@
  */
 export * from './types.js';
 export * from './receipt.js';
+export * from './table.js';
 export * from './redact.js';
 export * from './statement/csv.js';
 export * from './statement/layout.js';

@@ -1,18 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { formatAmount, now } from '@budget/schema';
+import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { now, sumAmounts } from '@budget/schema';
 import type { CaptureId } from '@budget/schema';
-import { extractReceipt } from '@budget/extract';
-import type { CandidateTransaction, StructuredCandidate } from '@budget/extract';
+import { buildReceiptTable, extractReceipt, fillTable, renderTable } from '@budget/extract';
+import type { CandidateTransaction, ReceiptTable } from '@budget/extract';
 import { assistOffer, runAssist, textToSend } from '../../src/llm/assist';
 import type { AssistOffer } from '../../src/llm/assist';
 import { useLedger } from '../../src/db/provider';
 import { useDefaultCurrency } from '../../src/profile/context';
 import { documentPath } from '../../src/capture/documents';
 import { loadOcrEngine } from '../../src/capture/ocr';
+import { toDrafts, toEditable } from '../../src/capture/table-edit';
+import type { EditableRow } from '../../src/capture/table-edit';
+import { fromDay, toDay } from '../../src/lib/day';
 import {
+  clearAmount,
   displayAmount,
   emptyAmount,
   fromMinorUnits,
@@ -21,26 +25,32 @@ import {
   pressDigit,
   toMinorUnits,
 } from '../../src/lib/amount-entry';
-import { CurrencyField } from '../../src/ui/currency-field';
+import {
+  AmountHeader,
+  Card,
+  FormError,
+  Keypad,
+  PrimaryButton,
+  QuietButton,
+  SecondaryButton,
+  TextField,
+} from '../../src/ui/form';
+import { ReceiptTableEditor } from '../../src/ui/receipt-table';
 import { colors, radius, spacing, text } from '../../src/ui/theme';
 
-
-const KEYPAD = [
-  ['1', '2', '3'],
-  ['4', '5', '6'],
-  ['7', '8', '9'],
-  ['C', '0', 'back'],
-] as const;
-
 type Status = 'reading' | 'ready' | 'no-engine';
+
+const EMPTY_TABLE: ReceiptTable = { header: [], rows: [], engine: '' };
 
 /**
  * Extraction proposes; the user disposes. Nothing here writes to the ledger
  * until Save, and the row is written already confirmed because the user just
- * looked at the number and agreed to it.
+ * looked at the numbers and agreed to them.
  *
- * Low-confidence fields are marked rather than hidden — the user needs to know
- * which numbers to actually check.
+ * The receipt is shown as the table it was printed as — every row the rules
+ * found, editable where it is wrong, with the unpriced ones marked. That is a
+ * different promise from the old screen, which showed a total and hid the rest:
+ * a misread line is now visible before it reaches the ledger rather than after.
  */
 export default function ConfirmScreen(): ReactNode {
   const { captureId } = useLocalSearchParams<{ captureId: string }>();
@@ -53,19 +63,28 @@ export default function ConfirmScreen(): ReactNode {
 
   const [status, setStatus] = useState<Status>('reading');
   const [candidate, setCandidate] = useState<CandidateTransaction>({});
+  const [table, setTable] = useState<ReceiptTable>(EMPTY_TABLE);
+  const [rows, setRows] = useState<readonly EditableRow[]>([]);
   const [photoUri, setPhotoUri] = useState<string | undefined>(undefined);
   const [amount, setAmount] = useState(() => emptyAmount(DEFAULT_CURRENCY));
-  const [note, setNote] = useState('');
+  const [merchant, setMerchant] = useState('');
+  const [day, setDay] = useState(() => toDay(now()));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The OCR text, kept because Tier 3 reads text rather than pixels — and
-  // because the user has to be shown exactly what would be sent.
-  const [receiptText, setReceiptText] = useState('');
   const [offer, setOffer] = useState<AssistOffer | undefined>(undefined);
   const [asking, setAsking] = useState(false);
   const [assisting, setAssisting] = useState(false);
-  const [detail, setDetail] = useState<StructuredCandidate | undefined>(undefined);
+  const [readBy, setReadBy] = useState<string | undefined>(undefined);
+
+  /**
+   * What a model would be given: the table, not the raw OCR dump.
+   *
+   * A rendered table names the rows that have no number, which turns "read this
+   * receipt" into "three of these rows are missing a value". It is also exactly
+   * what the consent screen shows, because it is the same string.
+   */
+  const tableText = useMemo(() => renderTable(table, amount.currency), [table, amount.currency]);
 
   useEffect(() => {
     // Read through a function: TypeScript keeps property narrowing across an
@@ -92,14 +111,21 @@ export default function ConfirmScreen(): ReactNode {
         if (cancelled()) return;
 
         const proposed = extractReceipt(result, { defaultCurrency: DEFAULT_CURRENCY });
+        const built = buildReceiptTable(result);
+        const currency = proposed.currency?.value ?? DEFAULT_CURRENCY;
+
         setCandidate(proposed);
-        setReceiptText(result.lines.map((line) => line.text).join('\n'));
+        setTable(built);
+        setRows(toEditable(built, currency));
 
         if (proposed.total) {
-          setAmount(fromMinorUnits(proposed.total.value, proposed.currency?.value ?? DEFAULT_CURRENCY));
+          setAmount(fromMinorUnits(proposed.total.value, currency));
         }
         if (proposed.merchant) {
-          setNote(proposed.merchant.value);
+          setMerchant(proposed.merchant.value);
+        }
+        if (proposed.occurredAt) {
+          setDay(toDay(proposed.occurredAt.value));
         }
         setStatus('ready');
       } catch {
@@ -111,18 +137,22 @@ export default function ConfirmScreen(): ReactNode {
     return () => {
       controller.abort();
     };
-  }, [captureId, ledger.driver]);
+  }, [captureId, ledger.driver, DEFAULT_CURRENCY]);
 
   useEffect(() => {
     void assistOffer().then(setOffer);
   }, []);
 
   /**
-   * Read the breakdown — either on the phone, or, with a tap, off it.
+   * Fill the gaps — either on the phone, or, with a tap, off it.
    *
    * An on-device model runs straight away because nothing leaves. A remote one
    * gets a screen first, showing the exact text, and the permission it produces
    * is checked against that text inside the adapter.
+   *
+   * What comes back fills empty rows and adds ones OCR lost. It never overwrites
+   * a number the receipt printed — that rule lives in `fillTable`, where it can
+   * be tested, rather than in a screen.
    */
   const assist = async (approvedText?: string): Promise<void> => {
     setAssisting(true);
@@ -131,19 +161,24 @@ export default function ConfirmScreen(): ReactNode {
 
     try {
       const structured = await runAssist({
-        text: receiptText,
+        text: tableText,
         kind: 'receipt',
         defaultCurrency: amount.currency,
         ...(approvedText === undefined ? {} : { approvedText }),
       });
 
-      setDetail(structured);
+      const filled = fillTable(table, structured);
+      setTable(filled);
+      setRows(mergeEdits(toEditable(filled, amount.currency), rows));
+      setReadBy(structured.engine);
 
       // The model's total wins only if it read one; the keypad already holds
       // what the rules found, and silently replacing a number the user has
       // looked at would be the wrong kind of helpful.
       if (structured.total !== undefined && structured.total.value !== toMinorUnits(amount)) {
-        setAmount(fromMinorUnits(structured.total.value, structured.currency?.value ?? amount.currency));
+        setAmount(
+          fromMinorUnits(structured.total.value, structured.currency?.value ?? amount.currency),
+        );
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -156,31 +191,45 @@ export default function ConfirmScreen(): ReactNode {
     const minor = toMinorUnits(amount);
     if (minor === null || saving) return;
 
+    const occurredAt = fromDay(day, candidate.occurredAt?.value ?? now());
+    if (occurredAt === null) {
+      setError(`${day} is not a date. Use YYYY-MM-DD.`);
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
     try {
-      const merchantName = note.trim();
+      const merchantName = merchant.trim();
       const merchantId = merchantName === '' ? null : await ledger.merchants.resolve(merchantName);
 
-      await ledger.transactions.create({
+      const drafts = toDrafts(rows, amount.currency);
+      const itemised = sumAmounts(drafts.map((draft) => draft.totalMinor));
+
+      const transaction = await ledger.transactions.create({
         captureId: captureId as CaptureId,
         accountId: null,
         merchantId,
         categoryId: null,
         amountMinor: minor,
         currency: amount.currency,
-        occurredAt: candidate.occurredAt?.value ?? now(),
+        occurredAt,
         postedAt: null,
         note: merchantName === '' ? null : merchantName,
         source: 'photo',
-        // The user just read this number and agreed to it.
+        // The user just read these numbers and agreed to them.
         confirmedAt: now(),
         fxOriginalMinor: null,
         fxOriginalCurrency: null,
         fxRate: null,
-        reconciled: false,
+        // Claimed only when the breakdown actually adds up to what was charged.
+        reconciled: drafts.length > 0 && itemised === minor,
       });
+
+      if (drafts.length > 0) {
+        await ledger.lineItems.replaceFor(transaction.id, drafts);
+      }
 
       router.dismissAll();
       router.replace('/');
@@ -204,194 +253,147 @@ export default function ConfirmScreen(): ReactNode {
         </Text>
       )}
 
-      <View style={styles.amountBlock}>
-        <Text style={styles.amountText}>{displayAmount(amount)}</Text>
-        <CurrencyField
-          value={amount.currency}
-          onChange={(currency) => {
-            setAmount((current) => ({ ...current, currency }));
-          }}
-          note={
-            candidate.currency === undefined || candidate.currency.confidence < 0.5
-              ? 'Your default — this receipt does not say which currency.'
-              : `Printed on the receipt: ${candidate.currency.evidence}`
-          }
-        />
-        {candidate.total && (
-          <Confidence
-            label={
-              candidate.total.confidence < 0.5
-                ? 'Guessed from the largest amount — check this'
-                : 'Read from the receipt'
-            }
-            confidence={candidate.total.confidence}
-            evidence={candidate.total.evidence}
-          />
-        )}
-      </View>
-
-      <TextInput
-        value={note}
-        onChangeText={setNote}
-        placeholder="Merchant"
-        placeholderTextColor={colors.textFaint}
-        style={styles.input}
+      <AmountHeader
+        amount={displayAmount(amount)}
+        currency={amount.currency}
+        onCurrencyChange={(currency) => {
+          setAmount((current) => ({ ...current, currency }));
+        }}
+        note={
+          candidate.currency === undefined || candidate.currency.confidence < 0.5
+            ? 'Your default — this receipt does not say which currency.'
+            : `Printed on the receipt: ${candidate.currency.evidence}`
+        }
+        {...(candidate.total === undefined
+          ? {}
+          : {
+              caption:
+                candidate.total.confidence < 0.5
+                  ? `Guessed from the largest amount — check this: ${candidate.total.evidence}`
+                  : `Read from the receipt: ${candidate.total.evidence}`,
+              captionWarns: candidate.total.confidence < 0.5,
+            })}
       />
 
-      {candidate.occurredAt && candidate.occurredAt.confidence < 0.7 && (
-        <Text style={styles.warn}>
-          The date on this receipt is ambiguous ({candidate.occurredAt.evidence}). Check it before
-          saving.
-        </Text>
-      )}
+      <TextField
+        label="Merchant"
+        value={merchant}
+        onChangeText={setMerchant}
+        placeholder="Who was paid?"
+      />
+
+      <TextField
+        label="When"
+        value={day}
+        onChangeText={setDay}
+        placeholder="YYYY-MM-DD"
+        keyboardType="numbers-and-punctuation"
+        {...(candidate.occurredAt && candidate.occurredAt.confidence < 0.7
+          ? {
+              warning: `The date on this receipt is ambiguous (${candidate.occurredAt.evidence}) — day and month could be either way round. Check it before saving.`,
+            }
+          : {})}
+      />
+
+      <ReceiptTableEditor rows={rows} currency={amount.currency} onChange={setRows} />
+
+      {readBy !== undefined && <Text style={text.faint}>Gaps filled by {readBy}.</Text>}
 
       {candidate.cardLast4 && (
         <Text style={text.faint}>Card ending {candidate.cardLast4.value}</Text>
       )}
 
-      {status === 'ready' && offer?.available === true && detail === undefined && !asking && (
-        <Pressable accessibilityRole="button"
-          style={styles.secondaryButton}
-          disabled={assisting}
+      {status === 'ready' && offer?.available === true && readBy === undefined && !asking && (
+        <SecondaryButton
+          label={offer.label}
+          busyLabel="Reading…"
+          busy={assisting}
           onPress={() => {
             // A remote reading is a decision, so it gets a screen. A local one
             // is not, so it does not.
             if (offer.remote) setAsking(true);
             else void assist();
           }}
-        >
-          <Text style={styles.secondaryText}>{assisting ? 'Reading…' : offer.label}</Text>
-        </Pressable>
+        />
       )}
 
       {asking && (
-        <View style={styles.consent}>
+        <Card>
           <Text style={text.heading}>Send this text?</Text>
           <Text style={text.body}>
             This is everything that would leave your phone, using your own API key. The photo stays
             here, and so does your ledger.
           </Text>
           <ScrollView style={styles.consentText} nestedScrollEnabled>
-            <Text style={styles.monospace}>{textToSend(receiptText)}</Text>
+            <Text style={styles.monospace}>{textToSend(tableText)}</Text>
           </ScrollView>
           <Text style={text.faint}>
             Card and account numbers are masked above. This permission covers this one capture.
           </Text>
           <View style={styles.consentButtons}>
-            <Pressable accessibilityRole="button"
-              style={styles.secondaryButton}
-              onPress={() => {
-                setAsking(false);
-              }}
-            >
-              <Text style={styles.secondaryText}>Not this time</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button"
-              style={styles.sendButton}
-              onPress={() => void assist(textToSend(receiptText))}
-            >
-              <Text style={styles.saveButtonText}>Send this text</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-
-      {detail?.lineItems !== undefined && (
-        <View style={styles.breakdown}>
-          <Text style={text.heading}>What was bought</Text>
-          {detail.lineItems.map((item) => (
-            <View key={`${item.value.description}-${String(item.value.amount)}`} style={styles.itemRow}>
-              <Text style={item.confidence < 0.5 ? styles.warn : text.body} numberOfLines={1}>
-                {item.value.description}
-              </Text>
-              <Text style={text.body}>
-                {formatAmount(item.value.amount, detail.currency?.value ?? amount.currency)}
-              </Text>
+            <View style={styles.consentButton}>
+              <SecondaryButton
+                label="Not this time"
+                onPress={() => {
+                  setAsking(false);
+                }}
+              />
             </View>
-          ))}
-
-          {detail.reconciliation !== undefined && !detail.reconciliation.balanced && (
-            <Text style={styles.warn}>
-              These items come to{' '}
-              {formatAmount(detail.reconciliation.itemisedTotal, detail.currency?.value ?? amount.currency)}
-              , not the total above. A discount or a missed line — worth a look before saving.
-            </Text>
-          )}
-
-          <Text style={text.faint}>Read by {detail.engine}.</Text>
-        </View>
+            <View style={styles.consentButton}>
+              <PrimaryButton
+                label="Send this text"
+                onPress={() => void assist(textToSend(tableText))}
+              />
+            </View>
+          </View>
+        </Card>
       )}
 
       {status === 'ready' && offer?.available === false && (
-        <Pressable accessibilityRole="button"
+        <QuietButton
+          label="No model on this phone, so nothing can fill a row the camera could not read. What that means →"
           onPress={() => {
             router.push('/assist');
           }}
-        >
-          <Text style={text.faint}>
-            No model on this phone, so there is no item-by-item breakdown. What that means →
-          </Text>
-        </Pressable>
+        />
       )}
 
-      {error !== null && <Text
-          accessibilityRole="alert"
-          accessibilityLiveRegion="assertive"
-          style={styles.error}
-        >
-          {error}
-        </Text>}
+      <FormError message={error} />
 
-      <View style={styles.keypad}>
-        {KEYPAD.map((row) => (
-          <View key={row.join()} style={styles.keypadRow}>
-            {row.map((key) => (
-              <Pressable accessibilityRole="button"
-                key={key}
-                style={styles.key}
-                accessibilityLabel={key}
-                onPress={() => {
-                  if (key === 'C') setAmount((c) => ({ ...c, minor: 0 }));
-                  else if (key === 'back') setAmount(pressBackspace);
-                  else setAmount((c) => pressDigit(c, Number(key)));
-                }}
-              >
-                <Text style={styles.keyText}>{key === 'back' ? '⌫' : key}</Text>
-              </Pressable>
-            ))}
-          </View>
-        ))}
+      <View style={styles.keypadDock}>
+        <Keypad
+          onPress={(key) => {
+            if (key === 'clear') setAmount(clearAmount);
+            else if (key === 'back') setAmount(pressBackspace);
+            else setAmount((c) => pressDigit(c, key));
+          }}
+        />
+
+        <PrimaryButton
+          label="Save"
+          busyLabel="Saving…"
+          busy={saving}
+          disabled={isEmpty(amount)}
+          onPress={() => void save()}
+        />
       </View>
-
-      <Pressable accessibilityRole="button"
-        onPress={() => void save()}
-        disabled={isEmpty(amount) || saving}
-        style={[styles.saveButton, (isEmpty(amount) || saving) && styles.saveButtonDisabled]}
-      >
-        <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
-      </Pressable>
     </ScrollView>
   );
 }
 
-function Confidence({
-  label,
-  confidence,
-  evidence,
-}: {
-  label: string;
-  confidence: number;
-  evidence: string;
-}): ReactNode {
-  const low = confidence < 0.5;
-  return (
-    <View style={styles.confidence}>
-      <Text style={low ? styles.warn : text.faint}>{label}</Text>
-      <Text style={text.faint} numberOfLines={1}>
-        {evidence}
-      </Text>
-    </View>
-  );
+/**
+ * Keep what the user has typed when a model's reading arrives.
+ *
+ * The request takes seconds and the keyboard is not disabled while it runs, so
+ * an edit made in the meantime must survive the answer. A row the user has
+ * touched — `source: 'user'` — wins outright.
+ */
+function mergeEdits(
+  proposed: readonly EditableRow[],
+  edited: readonly EditableRow[],
+): EditableRow[] {
+  const mine = new Map(edited.filter((row) => row.source === 'user').map((row) => [row.key, row]));
+  return proposed.map((row) => mine.get(row.key) ?? row);
 }
 
 const styles = StyleSheet.create({
@@ -403,74 +405,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surface,
   },
-  amountBlock: { alignItems: 'center', gap: spacing.xs },
-  amountText: {
-    color: colors.text,
-    fontSize: 48,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  confidence: { alignItems: 'center', gap: 2 },
-  input: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  keypad: { gap: spacing.sm },
-  keypadRow: { flexDirection: 'row', gap: spacing.sm },
-  key: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    backgroundColor: colors.surfaceRaised,
-    borderRadius: radius.md,
-  },
-  keyText: { color: colors.text, fontSize: 24, fontWeight: '500' },
-  saveButton: {
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  saveButtonDisabled: { opacity: 0.4 },
-  saveButtonText: { color: colors.accentText, fontSize: 16, fontWeight: '600' },
-  secondaryButton: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryText: { color: colors.text, fontWeight: '600' },
-  sendButton: {
-    flex: 1,
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  consent: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
   // Tall enough to read, short enough that the buttons stay on screen: the
   // decision and what it covers belong in one view.
   consentText: { maxHeight: 200, backgroundColor: colors.surfaceRaised, borderRadius: radius.sm },
   monospace: { color: colors.text, fontFamily: 'monospace', fontSize: 12, padding: spacing.sm },
   consentButtons: { flexDirection: 'row', gap: spacing.sm },
-  breakdown: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
-  warn: { color: colors.pending, fontSize: 12, textAlign: 'center' },
-  error: { color: colors.danger },
+  consentButton: { flex: 1 },
+  keypadDock: { gap: spacing.md },
 });

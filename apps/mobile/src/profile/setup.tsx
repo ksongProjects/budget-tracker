@@ -1,21 +1,12 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CurrencySchema } from '@budget/schema';
 import type { Currency } from '@budget/schema';
-import { looksLikeEmail } from '@budget/db';
-import { CurrencyPicker } from '../ui/currency';
-import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../ui/theme';
+import { FormError, PrimaryButton } from '../ui/form';
+import { colors, spacing, text } from '../ui/theme';
+import { ProfileFields, emailLooksWrong } from './fields';
 import { useProfileState } from './context';
 
 /**
@@ -41,8 +32,7 @@ export function ProfileSetup(): ReactNode {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const emailLooksWrong = email.trim() !== '' && !looksLikeEmail(email);
-  const ready = name.trim() !== '' && !emailLooksWrong && !saving;
+  const ready = name.trim() !== '' && !emailLooksWrong(email);
 
   const submit = async (): Promise<void> => {
     setSaving(true);
@@ -74,61 +64,24 @@ export function ProfileSetup(): ReactNode {
           server — this is just what to call you.
         </Text>
 
-        <View style={styles.field}>
-          <Text style={text.muted}>Your name</Text>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Name"
-            placeholderTextColor={colors.textFaint}
-            autoCapitalize="words"
-            accessibilityLabel="Your name"
-            style={styles.input}
-          />
-          <Text style={text.faint}>Goes on exports and reports. Nothing else.</Text>
-        </View>
+        <ProfileFields
+          name={name}
+          onName={setName}
+          email={email}
+          onEmail={setEmail}
+          currency={currency}
+          onCurrency={setCurrency}
+        />
 
-        <View style={styles.field}>
-          <Text style={text.muted}>Email (optional)</Text>
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="you@example.com"
-            placeholderTextColor={colors.textFaint}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            accessibilityLabel="Email address"
-            style={styles.input}
-          />
-          <Text style={emailLooksWrong ? styles.warn : text.faint}>
-            {emailLooksWrong
-              ? 'That does not look like an email address.'
-              : 'Only used to fill in the To field when you mail yourself an export. No mail is sent by this app.'}
-          </Text>
-        </View>
+        <FormError message={error} />
 
-        <View style={styles.field}>
-          <CurrencyPicker value={currency} onChange={setCurrency} label="Record spending in" />
-          <Text style={text.faint}>
-            You can record a spend in any currency; this is the one the keypad opens in.
-          </Text>
-        </View>
-
-        {error !== null && (
-          <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
-            {error}
-          </Text>
-        )}
-
-        <Pressable
-          accessibilityRole="button"
-          style={[styles.primary, !ready && styles.disabled]}
+        <PrimaryButton
+          label="Start tracking"
+          busyLabel="Setting up…"
+          busy={saving}
           disabled={!ready}
           onPress={() => void submit()}
-        >
-          <Text style={styles.primaryText}>{saving ? 'Setting up…' : 'Start tracking'}</Text>
-        </Pressable>
+        />
 
         <Text style={text.faint}>
           Everything you record stays on this device. You can change any of this later.
@@ -141,25 +94,4 @@ export function ProfileSetup(): ReactNode {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: spacing.lg, gap: spacing.lg },
-  field: { gap: spacing.xs },
-  input: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: spacing.md,
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  primary: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: MIN_TOUCH_TARGET,
-    paddingVertical: spacing.sm,
-  },
-  primaryText: { color: colors.accentText, fontWeight: '700', fontSize: 16 },
-  disabled: { opacity: 0.5 },
-  warn: { color: colors.pending, fontSize: 12 },
-  error: { color: colors.danger },
 });

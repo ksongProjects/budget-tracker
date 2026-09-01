@@ -39,6 +39,17 @@ const TIP_LABEL = /\b(tip|gratuity)\b/i;
 const AMOUNT = /(?:([$€£¥])\s*)?(\d{1,3}(?:[,\s]\d{3})*|\d+)([.,]\d{2})(?!\d)/g;
 
 /**
+ * A fresh matcher over the same pattern.
+ *
+ * A `/g` regex carries `lastIndex`, so handing this one out would let two
+ * callers interleave into each other's scan. Everyone who needs to walk the
+ * amounts on a line gets their own.
+ */
+export function amountPattern(): RegExp {
+  return new RegExp(AMOUNT.source, 'g');
+}
+
+/**
  * Currency is read only where the receipt says it in words.
  *
  * Symbols are not statements. A dollar sign is printed by Canada, Australia,

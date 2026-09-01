@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { formatAmount } from '@budget/schema';
@@ -13,8 +13,18 @@ import type { ColumnMapping, CsvTable, DateOrder } from '@budget/extract';
 import { useLedger } from '../src/db/provider';
 import { useDefaultCurrency } from '../src/profile/context';
 import { CurrencyPicker } from '../src/ui/currency';
+import {
+  Card,
+  Chip,
+  ChipRow,
+  Field,
+  FormError,
+  FormWarning,
+  PrimaryButton,
+  SecondaryButton,
+} from '../src/ui/form';
 import { FileText, decorative } from '../src/ui/icons';
-import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
+import { colors, spacing, text } from '../src/ui/theme';
 
 /**
  * Importing a bank statement on the phone.
@@ -128,13 +138,14 @@ export default function ImportScreen(): ReactNode {
         rows arrive unconfirmed — they count toward nothing until you accept them.
       </Text>
 
-      <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void choose()}>
-        <FileText {...decorative({ color: colors.accentText })} />
-        <Text style={styles.primaryText}>{table === undefined ? 'Choose a file' : 'Choose another file'}</Text>
-      </Pressable>
+      <PrimaryButton
+        label={table === undefined ? 'Choose a file' : 'Choose another file'}
+        icon={<FileText {...decorative({ color: colors.accentText })} />}
+        onPress={() => void choose()}
+      />
 
       {fileName !== undefined && table !== undefined && (
-        <View style={styles.card}>
+        <Card>
           <Text style={text.heading}>{fileName}</Text>
           <Text style={text.muted}>
             {table.rows.length} rows, {table.header.length} columns
@@ -155,7 +166,7 @@ export default function ImportScreen(): ReactNode {
           ))}
 
           <Text style={text.muted}>Dates read as</Text>
-          <View style={styles.row}>
+          <ChipRow>
             {(
               [
                 ['mdy', 'Month first'],
@@ -173,7 +184,7 @@ export default function ImportScreen(): ReactNode {
                 }}
               />
             ))}
-          </View>
+          </ChipRow>
 
           {/* The file's own currency, which is not always the one this phone
               records in — a statement from a trip abroad is the normal case.
@@ -191,26 +202,25 @@ export default function ImportScreen(): ReactNode {
             it does not change your default.
           </Text>
 
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.secondary, (!isComplete(mapping) || busy) && styles.disabled]}
-            disabled={!isComplete(mapping) || busy}
+          <SecondaryButton
+            label="Preview the import"
+            busyLabel="Reading…"
+            disabled={!isComplete(mapping)}
+            busy={busy}
             onPress={() => void look()}
-          >
-            <Text style={styles.secondaryText}>{busy ? 'Reading…' : 'Preview the import'}</Text>
-          </Pressable>
-        </View>
+          />
+        </Card>
       )}
 
       {preview !== undefined && (
-        <View style={styles.card}>
+        <Card>
           <Text style={text.heading}>
             {preview.fresh.length} to import, {preview.duplicates.length} already in your ledger
           </Text>
           {preview.problems.length > 0 && (
-            <Text style={styles.warn}>
-              {preview.problems.length} rows could not be read and will be skipped.
-            </Text>
+            <FormWarning
+              message={`${String(preview.problems.length)} rows could not be read and will be skipped.`}
+            />
           )}
 
           {preview.fresh.slice(0, 5).map((row) => (
@@ -225,42 +235,32 @@ export default function ImportScreen(): ReactNode {
             <Text style={text.faint}>and {preview.fresh.length - 5} more</Text>
           )}
 
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.primary, (preview.fresh.length === 0 || busy) && styles.disabled]}
-            disabled={preview.fresh.length === 0 || busy}
+          <PrimaryButton
+            label={`Import ${String(preview.fresh.length)} rows`}
+            busyLabel="Importing…"
+            disabled={preview.fresh.length === 0}
+            busy={busy}
             onPress={() => void commit()}
-          >
-            <Text style={styles.primaryText}>
-              {busy ? 'Importing…' : `Import ${String(preview.fresh.length)} rows`}
-            </Text>
-          </Pressable>
-        </View>
+          />
+        </Card>
       )}
 
       {done !== undefined && (
-        <View style={styles.card}>
+        <Card>
           <Text style={text.body}>
             {done} rows imported, waiting to be confirmed. They count toward nothing until you
             accept them.
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            style={styles.secondary}
+          <SecondaryButton
+            label="Back to transactions"
             onPress={() => {
               router.back();
             }}
-          >
-            <Text style={styles.secondaryText}>Back to transactions</Text>
-          </Pressable>
-        </View>
+          />
+        </Card>
       )}
 
-      {error !== null && (
-        <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
-          {error}
-        </Text>
-      )}
+      <FormError message={error} />
     </ScrollView>
   );
 }
@@ -277,9 +277,8 @@ function ColumnChoice({
   onSelect: (index: number) => void;
 }): ReactNode {
   return (
-    <View style={styles.choice}>
-      <Text style={text.faint}>{field}</Text>
-      <View style={styles.row}>
+    <Field label={field}>
+      <ChipRow>
         {header.map((name, index) => (
           <Chip
             key={`${name}-${String(index)}`}
@@ -290,78 +289,13 @@ function ColumnChoice({
             }}
           />
         ))}
-      </View>
-    </View>
-  );
-}
-
-function Chip({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}): ReactNode {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      style={[styles.chip, selected && styles.chipSelected]}
-      onPress={onPress}
-    >
-      <Text style={selected ? styles.chipTextSelected : styles.chipText} numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
+      </ChipRow>
+    </Field>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.md, gap: spacing.md, paddingBottom: spacing.xl },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  choice: { gap: spacing.xs },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    maxWidth: 180,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceRaised,
-  },
-  chipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { color: colors.textMuted, fontSize: 13 },
-  chipTextSelected: { color: colors.accentText, fontSize: 13, fontWeight: '700' },
   previewRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
-  primary: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  primaryText: { color: colors.accentText, fontWeight: '700', fontSize: 16 },
-  secondary: {
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: MIN_TOUCH_TARGET,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryText: { color: colors.text, fontWeight: '600' },
-  disabled: { opacity: 0.4 },
-  warn: { color: colors.pending, fontSize: 12 },
-  error: { color: colors.danger },
 });

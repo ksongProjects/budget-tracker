@@ -17,7 +17,7 @@ import { cloudStatus } from '../src/cloud/sync';
 import { CaptureMenu } from '../src/ui/capture-menu';
 import { FilterBar, NO_FILTERS, isFiltered, periodStart } from '../src/ui/filters';
 import type { Filters } from '../src/ui/filters';
-import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
+import { colors, radius, spacing, text } from '../src/ui/theme';
 
 const PAGE_SIZE = 50;
 
@@ -79,48 +79,14 @@ export default function LedgerScreen(): ReactNode {
     return <Centered message={error.message} />;
   }
 
-  if (!loading && rows.length === 0 && !isFiltered(filters)) {
-    // Every way in, not just the typed one. The capture buttons live on the
-    // list, so an empty ledger used to offer a keypad and nothing else — which
-    // hid the camera and the microphone from exactly the person who has never
-    // seen them: someone who has just installed the app.
-    return (
-      <View style={styles.empty}>
-        <Text style={text.heading}>Nothing captured yet</Text>
-        <Text style={[text.muted, styles.emptyBody]}>
-          Photograph a receipt, say what you spent, or type it. Everything you record stays on this
-          device.
-        </Text>
-        <Link href="/capture" asChild>
-          <Pressable accessibilityRole="button" style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Photograph a receipt</Text>
-          </Pressable>
-        </Link>
-        <Link href="/voice" asChild>
-          <Pressable accessibilityRole="button" style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Say a spend</Text>
-          </Pressable>
-        </Link>
-        <Link href="/add" asChild>
-          <Pressable accessibilityRole="button" style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Type a spend</Text>
-          </Pressable>
-        </Link>
-        <Link href="/import" asChild>
-          <Pressable accessibilityRole="button" style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Import a statement</Text>
-          </Pressable>
-        </Link>
-      </View>
-    );
-  }
+  const empty = !loading && rows.length === 0;
 
   return (
     <View style={styles.screen}>
       <BackupNudge verdict={backup} />
       <FilterBar value={filters} onChange={setFilters} />
 
-      {!loading && rows.length === 0 && (
+      {empty && isFiltered(filters) && (
         <View style={styles.noMatches}>
           <Text style={text.muted}>Nothing matches those filters.</Text>
           <Pressable
@@ -134,24 +100,45 @@ export default function LedgerScreen(): ReactNode {
         </View>
       )}
 
-      <FlashList
-        data={rows}
-        keyExtractor={(row) => row.key}
-        getItemType={(row) => row.kind}
-        renderItem={({ item: row }) => {
-          if (row.kind === 'month') return <MonthHeader label={row.label} />;
-          if (row.kind === 'day') return <DayHeader section={row.section} />;
-          return (
-            <TransactionRow
-              transaction={row.transaction}
-              onPress={() => {
-                router.push(`/transaction/${row.transaction.id}`);
-              }}
-            />
-          );
-        }}
-        contentContainerStyle={styles.listContent}
-      />
+      {/* An empty ledger is the same screen as a full one, minus the rows.
+          It used to be its own layout with four buttons stacked in the middle,
+          so the first thing a new user learned was a control that disappeared
+          the moment they recorded anything. The + is where every capture starts
+          for the rest of the app's life; the empty screen points at it rather
+          than replacing it. */}
+      {empty && !isFiltered(filters) && (
+        <View style={styles.empty}>
+          <Text style={text.heading}>Nothing recorded yet</Text>
+          <Text style={[text.muted, styles.emptyBody]}>
+            Tap the + button to photograph a receipt, say what you spent, type it, or import a
+            statement. Everything you record stays on this device.
+          </Text>
+        </View>
+      )}
+
+      {/* The list is left out entirely when there is nothing to list: an empty
+          FlashList and the empty message would each claim the same flexed
+          space, and the message would land above centre. */}
+      {!(empty && !isFiltered(filters)) && (
+        <FlashList
+          data={rows}
+          keyExtractor={(row) => row.key}
+          getItemType={(row) => row.kind}
+          renderItem={({ item: row }) => {
+            if (row.kind === 'month') return <MonthHeader label={row.label} />;
+            if (row.kind === 'day') return <DayHeader section={row.section} />;
+            return (
+              <TransactionRow
+                transaction={row.transaction}
+                onPress={() => {
+                  router.push(`/transaction/${row.transaction.id}`);
+                }}
+              />
+            );
+          }}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
 
       <CaptureMenu />
     </View>
@@ -355,23 +342,4 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1 },
   pendingLabel: { color: colors.pending, fontSize: 12, marginTop: 2 },
   amountPending: { color: colors.pending },
-  primaryButton: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.accent,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-  },
-  primaryButtonText: { color: colors.accentText, fontWeight: '600', fontSize: 16 },
-  secondaryButton: {
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    minHeight: MIN_TOUCH_TARGET,
-    justifyContent: 'center',
-  },
-  secondaryButtonText: { color: colors.text, fontWeight: '600', fontSize: 16 },
 });

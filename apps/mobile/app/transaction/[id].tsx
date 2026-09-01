@@ -1,10 +1,19 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { formatAmount } from '@budget/schema';
-import type { TransactionId } from '@budget/schema';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { formatAmount, sumAmounts } from '@budget/schema';
+import type { Currency, LineItem, MinorUnits, TransactionId } from '@budget/schema';
+import { documentPath } from '../../src/capture/documents';
 import { useLedger, useQuery } from '../../src/db/provider';
+import {
+  AmountHeader,
+  Card,
+  DangerButton,
+  Field,
+  PrimaryButton,
+  TextField,
+} from '../../src/ui/form';
 import { colors, radius, spacing, text } from '../../src/ui/theme';
 
 /** Detail, edit, confirm, delete. Delete is soft — the row survives for Merge. */
@@ -16,10 +25,31 @@ export default function TransactionScreen(): ReactNode {
   const [version, setVersion] = useState(0);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const { data: transaction, loading } = useQuery(
     (l) => l.transactions.get(id as TransactionId),
     [id],
+    version,
+  );
+
+  // The breakdown and the photo behind this row. Both are read once the
+  // transaction is known, and both are absent for a typed spend, which is a
+  // normal state rather than an error.
+  const { data: items } = useQuery(
+    (l) => l.lineItems.listFor(id as TransactionId),
+    [id],
+    version,
+  );
+
+  const { data: photoUri } = useQuery(
+    async (l) => {
+      const captureId = transaction?.captureId;
+      return captureId === null || captureId === undefined
+        ? undefined
+        : documentPath(l.driver, captureId);
+    },
+    [transaction?.captureId],
     version,
   );
 
@@ -71,12 +101,34 @@ export default function TransactionScreen(): ReactNode {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <View style={styles.amountBlock}>
-        <Text style={styles.amountText}>
-          {formatAmount(transaction.amountMinor, transaction.currency)}
-        </Text>
-        <Text style={text.faint}>{transaction.currency}</Text>
-      </View>
+      <AmountHeader
+        amount={formatAmount(transaction.amountMinor, transaction.currency)}
+        currency={transaction.currency}
+      />
+
+      {/* The photo is kept for the life of the row, so "what did I actually
+          buy" is answerable months later by looking at the receipt rather than
+          by trusting the number that was read off it. Tap to see it full
+          height — a thumbnail is enough to recognise, never enough to check. */}
+      {photoUri !== undefined && (
+        <Pressable
+          accessibilityRole="imagebutton"
+          accessibilityLabel={expanded ? 'Shrink the receipt photo' : 'Enlarge the receipt photo'}
+          onPress={() => {
+            setExpanded((was) => !was);
+          }}
+        >
+          <Image
+            source={{ uri: photoUri }}
+            style={[styles.photo, expanded && styles.photoExpanded]}
+            resizeMode="contain"
+          />
+        </Pressable>
+      )}
+
+      {items !== undefined && items.length > 0 && (
+        <Breakdown items={items} currency={transaction.currency} total={transaction.amountMinor} />
+      )}
 
       {pending && (
         <View style={styles.pendingCard}>
@@ -84,22 +136,17 @@ export default function TransactionScreen(): ReactNode {
           <Text style={text.muted}>
             This amount stays out of your totals until you confirm it.
           </Text>
-          <Pressable accessibilityRole="button" style={styles.primaryButton} onPress={() => void confirm()} disabled={busy}>
-            <Text style={styles.primaryButtonText}>Confirm</Text>
-          </Pressable>
+          <PrimaryButton label="Confirm" busy={busy} onPress={() => void confirm()} />
         </View>
       )}
 
-      <Field label="Note">
-        <TextInput
-          value={noteValue}
-          onChangeText={setNote}
-          onBlur={() => void saveNote()}
-          placeholder="Add a note"
-          placeholderTextColor={colors.textFaint}
-          style={styles.input}
-        />
-      </Field>
+      <TextField
+        label="Note"
+        value={noteValue}
+        onChangeText={setNote}
+        onBlur={() => void saveNote()}
+        placeholder="Add a note"
+      />
 
       <Field label="When">
         <Text style={text.body}>{new Date(transaction.occurredAt).toLocaleString()}</Text>
@@ -115,19 +162,55 @@ export default function TransactionScreen(): ReactNode {
         </Text>
       </Field>
 
-      <Pressable accessibilityRole="button" style={styles.deleteButton} onPress={remove}>
-        <Text style={styles.deleteButtonText}>Delete</Text>
-      </Pressable>
+      <DangerButton label="Delete" onPress={remove} />
     </ScrollView>
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }): ReactNode {
+/**
+ * What was bought, as it was confirmed.
+ *
+ * Read-only here on purpose: the breakdown was checked against the photo on the
+ * confirm screen, and a number that has been counted in a total is not a field
+ * to retype in passing. What this does show is whether it still adds up, since
+ * the transaction amount can be edited afterwards and the rows cannot follow it
+ * on their own.
+ */
+function Breakdown({
+  items,
+  currency,
+  total,
+}: {
+  items: readonly LineItem[];
+  currency: Currency;
+  total: MinorUnits;
+}): ReactNode {
+  const itemised = sumAmounts(items.map((item) => item.totalMinor));
+
   return (
-    <View style={styles.field}>
-      <Text style={text.faint}>{label}</Text>
-      {children}
-    </View>
+    <Card>
+      <Text style={text.faint}>What was bought</Text>
+
+      {items.map((item) => (
+        <View key={item.id} style={styles.breakdownRow}>
+          <Text style={text.body} numberOfLines={1}>
+            {item.quantity === null ? '' : `${String(item.quantity)} × `}
+            {item.name}
+            {item.kind === 'item' ? '' : ` · ${item.kind}`}
+          </Text>
+          <Text style={[text.body, styles.figure]}>
+            {formatAmount(item.totalMinor, currency)}
+          </Text>
+        </View>
+      ))}
+
+      {itemised !== total && (
+        <Text style={styles.mismatch}>
+          These rows come to {formatAmount(itemised, currency)}, not the{' '}
+          {formatAmount(total, currency)} charged.
+        </Text>
+      )}
+    </Card>
   );
 }
 
@@ -148,13 +231,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.background,
   },
-  amountBlock: { alignItems: 'center', paddingVertical: spacing.lg },
-  amountText: {
-    color: colors.text,
-    fontSize: 48,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
+  photo: {
+    width: '100%',
+    height: 200,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
   },
+  photoExpanded: { height: 520 },
+  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
+  figure: { fontVariant: ['tabular-nums'] },
+  mismatch: { color: colors.pending, fontSize: 12, marginTop: spacing.xs },
   pendingCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
@@ -164,23 +250,4 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.pending,
   },
   pendingTitle: { color: colors.pending, fontSize: 16, fontWeight: '600' },
-  field: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
-  input: { color: colors.text, fontSize: 16, padding: 0 },
-  primaryButton: {
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
-  primaryButtonText: { color: colors.accentText, fontWeight: '600' },
-  deleteButton: {
-    marginTop: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.danger,
-  },
-  deleteButtonText: { color: colors.danger, fontWeight: '600' },
 });
