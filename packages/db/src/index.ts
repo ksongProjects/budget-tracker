@@ -10,6 +10,7 @@ export * from './context.js';
 export * from './migrate.js';
 export * from './mapping.js';
 export * from './transactions.js';
+export * from './line-items.js';
 export * from './categories.js';
 export * from './accounts.js';
 export * from './driver-contract.js';

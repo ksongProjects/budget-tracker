@@ -43,7 +43,15 @@ import { assistOffer, runAssist, textToSend } from '../src/llm/assist';
 import { loadOcrEngine } from '../src/capture/ocr';
 import { colors, radius, spacing, text } from '../src/ui/theme';
 
-const DEFAULT_CURRENCY = CurrencySchema.parse('USD');
+/**
+ * The fixture's currency, not the user's.
+ *
+ * Diagnostics scores `assets/test-receipt.png` against the values printed on
+ * it, and those are dollars. Every screen a user actually records through takes
+ * this from the profile instead — reading a capture in a currency nobody chose
+ * is the bug this constant would cause anywhere but here.
+ */
+const FIXTURE_CURRENCY = CurrencySchema.parse('USD');
 
 /**
  * Runs the shared driver contract against the real expo-sqlite driver, on the
@@ -231,7 +239,7 @@ export default function DiagnosticsScreen(): ReactNode {
 
     for (const engine of engines) {
       try {
-        const score = await scoreEngine(engine, { defaultCurrency: DEFAULT_CURRENCY });
+        const score = await scoreEngine(engine, { defaultCurrency: FIXTURE_CURRENCY });
         lines.push(...formatScore(score).split('\n'));
       } catch (cause) {
         lines.push(`${engine.name} failed: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -426,7 +434,11 @@ export default function DiagnosticsScreen(): ReactNode {
     lines.push(`offer: ${offer.available ? offer.label : 'nothing to offer'}`);
     if (!offer.available) return lines;
 
-    const withoutConsent = await runAssist({ text: receiptText, kind: 'receipt' });
+    const withoutConsent = await runAssist({
+      text: receiptText,
+      kind: 'receipt',
+      defaultCurrency: FIXTURE_CURRENCY,
+    });
     lines.push(`no permission: read by ${withoutConsent.engine} (expect rules)`);
 
     const sending = textToSend(receiptText);
@@ -436,6 +448,7 @@ export default function DiagnosticsScreen(): ReactNode {
       const withConsent = await runAssist({
         text: receiptText,
         kind: 'receipt',
+        defaultCurrency: FIXTURE_CURRENCY,
         approvedText: sending,
         onError: (engine, cause) => {
           lines.push(`${engine} said: ${cause instanceof Error ? cause.message : String(cause)}`);
@@ -517,7 +530,7 @@ export default function DiagnosticsScreen(): ReactNode {
       const result = await engine.recognize(uri);
       lines.push(`engine ${result.engine}, ${result.lines.length} lines, ${result.durationMs} ms`);
 
-      const candidate = extractReceipt(result, { defaultCurrency: DEFAULT_CURRENCY });
+      const candidate = extractReceipt(result, { defaultCurrency: FIXTURE_CURRENCY });
       const money = (m: MinorUnits, c: Currency | undefined): string =>
         c ? formatAmount(m, c) : String(m);
 

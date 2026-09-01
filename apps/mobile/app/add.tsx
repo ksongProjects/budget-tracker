@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { CurrencySchema, now, uuidv7 } from '@budget/schema';
 import type { Category, CategoryId, MinorUnits } from '@budget/schema';
 import { useLedger, useQuery } from '../src/db/provider';
@@ -16,16 +16,16 @@ import {
   pressDigit,
   toMinorUnits,
 } from '../src/lib/amount-entry';
-import { CurrencyField } from '../src/ui/currency-field';
-import { colors, radius, spacing } from '../src/ui/theme';
-
-
-const KEYPAD = [
-  ['1', '2', '3'],
-  ['4', '5', '6'],
-  ['7', '8', '9'],
-  ['clear', '0', 'back'],
-] as const;
+import {
+  AmountHeader,
+  Chip,
+  FormError,
+  Keypad,
+  PrimaryButton,
+  ScrollingChipRow,
+  TextField,
+} from '../src/ui/form';
+import { colors, spacing } from '../src/ui/theme';
 
 /**
  * Amount first: the keypad is the screen. Everything else is optional, because
@@ -109,26 +109,17 @@ export default function AddScreen(): ReactNode {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.amountBlock}>
-        <Text style={styles.amountText}>{displayAmount(amount)}</Text>
-        <CurrencyField
-          value={amount.currency}
-          onChange={(currency) => {
-            // Only the currency changes: the digits already typed are the same
-            // number in whichever currency the user meant them to be.
-            setAmount((current) => ({ ...current, currency }));
-          }}
-        />
-      </View>
-
-      <TextInput
-        value={note}
-        onChangeText={setNote}
-        placeholder="What was it?"
-        placeholderTextColor={colors.textFaint}
-        style={styles.noteInput}
-        returnKeyType="done"
+      <AmountHeader
+        amount={displayAmount(amount)}
+        currency={amount.currency}
+        onCurrencyChange={(currency) => {
+          // Only the currency changes: the digits already typed are the same
+          // number in whichever currency the user meant them to be.
+          setAmount((current) => ({ ...current, currency }));
+        }}
       />
+
+      <TextField label="What was it?" value={note} onChangeText={setNote} placeholder="Optional" />
 
       <CategoryPicker
         categories={categories ?? []}
@@ -136,44 +127,25 @@ export default function AddScreen(): ReactNode {
         onSelect={setCategoryId}
       />
 
-      {error !== null && <Text
-          accessibilityRole="alert"
-          accessibilityLiveRegion="assertive"
-          style={styles.error}
-        >
-          {error}
-        </Text>}
+      <FormError message={error} />
 
-      <View style={styles.keypad}>
-        {KEYPAD.map((row) => (
-          <View key={row.join()} style={styles.keypadRow}>
-            {row.map((key) => (
-              <Pressable accessibilityRole="button"
-                key={key}
-                style={styles.key}
-                accessibilityLabel={key}
-                onPress={() => {
-                  if (key === 'clear') setAmount(clearAmount);
-                  else if (key === 'back') setAmount(pressBackspace);
-                  else setAmount((current) => pressDigit(current, Number(key)));
-                }}
-              >
-                <Text style={styles.keyText}>
-                  {key === 'back' ? '⌫' : key === 'clear' ? 'C' : key}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        ))}
+      <View style={styles.keypadDock}>
+        <Keypad
+          onPress={(key) => {
+            if (key === 'clear') setAmount(clearAmount);
+            else if (key === 'back') setAmount(pressBackspace);
+            else setAmount((current) => pressDigit(current, key));
+          }}
+        />
+
+        <PrimaryButton
+          label="Save"
+          busyLabel="Saving…"
+          busy={saving}
+          disabled={isEmpty(amount)}
+          onPress={() => void save()}
+        />
       </View>
-
-      <Pressable accessibilityRole="button"
-        onPress={() => void save()}
-        disabled={isEmpty(amount) || saving}
-        style={[styles.saveButton, (isEmpty(amount) || saving) && styles.saveButtonDisabled]}
-      >
-        <Text style={styles.saveButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
-      </Pressable>
     </View>
   );
 }
@@ -190,76 +162,24 @@ function CategoryPicker({
   if (categories.length === 0) return null;
 
   return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.chips}
-    >
-      {categories.map((category) => {
-        const active = category.id === selected;
-        return (
-          <Pressable accessibilityRole="button"
-            key={category.id}
-            onPress={() => {
-              onSelect(active ? null : category.id);
-            }}
-            style={[styles.chip, active && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, active && styles.chipTextActive]}>{category.name}</Text>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
+    <ScrollingChipRow>
+      {categories.map((category) => (
+        <Chip
+          key={category.id}
+          label={category.name}
+          selected={category.id === selected}
+          onPress={() => {
+            onSelect(category.id === selected ? null : category.id);
+          }}
+        />
+      ))}
+    </ScrollingChipRow>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background, padding: spacing.md },
-  amountBlock: { alignItems: 'center', paddingVertical: spacing.lg },
-  amountText: {
-    color: colors.text,
-    fontSize: 56,
-    fontWeight: '700',
-    fontVariant: ['tabular-nums'],
-  },
-  noteInput: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-  },
-  chips: { gap: spacing.sm, paddingVertical: spacing.md },
-  chip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipText: { color: colors.textMuted, fontSize: 14 },
-  chipTextActive: { color: colors.accentText, fontWeight: '600' },
-  keypad: { marginTop: 'auto', gap: spacing.sm },
-  keypadRow: { flexDirection: 'row', gap: spacing.sm },
-  key: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-    backgroundColor: colors.surfaceRaised,
-    borderRadius: radius.md,
-  },
-  keyText: { color: colors.text, fontSize: 24, fontWeight: '500' },
-  saveButton: {
-    marginTop: spacing.md,
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  saveButtonDisabled: { opacity: 0.4 },
-  saveButtonText: { color: colors.accentText, fontSize: 16, fontWeight: '600' },
-  error: { color: colors.danger, marginTop: spacing.sm },
+  screen: { flex: 1, backgroundColor: colors.background, padding: spacing.md, gap: spacing.md },
+  // The keypad and the one action it feeds sit together at the bottom, within
+  // reach of a thumb, on every screen that has them.
+  keypadDock: { marginTop: 'auto', gap: spacing.md },
 });

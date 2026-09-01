@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Currency } from '@budget/schema';
-import { looksLikeEmail } from '@budget/db';
 import { useProfileState } from '../src/profile/context';
-import { CurrencyPicker } from '../src/ui/currency';
+import { ProfileFields, emailLooksWrong } from '../src/profile/fields';
+import { FormError, PrimaryButton } from '../src/ui/form';
 import {
   Download,
   FileText,
@@ -34,7 +34,6 @@ export default function ProfileScreen(): ReactNode {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const emailLooksWrong = email.trim() !== '' && !looksLikeEmail(email);
   const changed =
     name !== (profile?.displayName ?? '') ||
     email !== (profile?.email ?? '') ||
@@ -70,53 +69,24 @@ export default function ProfileScreen(): ReactNode {
       </View>
 
       <View style={styles.card}>
-        <Text style={text.muted}>Your name</Text>
-        <TextInput
-          value={name}
-          onChangeText={setName}
-          placeholder="Name"
-          placeholderTextColor={colors.textFaint}
-          autoCapitalize="words"
-          accessibilityLabel="Your name"
-          style={styles.input}
+        <ProfileFields
+          name={name}
+          onName={setName}
+          email={email}
+          onEmail={setEmail}
+          currency={currency}
+          onCurrency={setCurrency}
         />
 
-        <Text style={text.muted}>Email</Text>
-        <TextInput
-          value={email}
-          onChangeText={setEmail}
-          placeholder="you@example.com"
-          placeholderTextColor={colors.textFaint}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          accessibilityLabel="Email address"
-          style={styles.input}
-        />
-        <Text style={emailLooksWrong ? styles.warn : text.faint}>
-          {emailLooksWrong
-            ? 'That does not look like an email address.'
-            : 'Fills in the To field when you mail yourself an export. This app sends no mail on its own.'}
-        </Text>
+        <FormError message={error} />
 
-        {currency !== undefined && (
-          <CurrencyPicker value={currency} onChange={setCurrency} label="Record spending in" />
-        )}
-
-        {error !== null && (
-          <Text accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.error}>
-            {error}
-          </Text>
-        )}
-
-        <Pressable
-          accessibilityRole="button"
-          style={[styles.primary, (!changed || emailLooksWrong || saving) && styles.disabled]}
-          disabled={!changed || emailLooksWrong || saving}
+        <PrimaryButton
+          label="Save changes"
+          busyLabel="Saving…"
+          busy={saving}
+          disabled={!changed || emailLooksWrong(email)}
           onPress={() => void submit()}
-        >
-          <Text style={styles.primaryText}>{saving ? 'Saving…' : 'Save changes'}</Text>
-        </Pressable>
+        />
 
         {saved && !changed && <Text style={text.faint}>Saved.</Text>}
       </View>
@@ -210,23 +180,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
-  input: {
-    backgroundColor: colors.surfaceRaised,
-    borderRadius: radius.md,
-    color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: spacing.md,
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  primary: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  primaryText: { color: colors.accentText, fontWeight: '700', fontSize: 16 },
-  disabled: { opacity: 0.4 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -238,6 +191,4 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1, gap: 2 },
   footer: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start', marginTop: spacing.md },
-  warn: { color: colors.pending, fontSize: 12 },
-  error: { color: colors.danger },
 });

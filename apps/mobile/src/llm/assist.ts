@@ -1,6 +1,5 @@
 import { redact, structureCapture } from '@budget/extract';
 import type { StructuredCandidate, StructuringKind } from '@budget/extract';
-import { CurrencySchema } from '@budget/schema';
 import type { Currency } from '@budget/schema';
 import { deviceEngines, engineList } from './engines';
 
@@ -51,7 +50,16 @@ export function textToSend(text: string): string {
 export interface AssistRequest {
   readonly text: string;
   readonly kind: StructuringKind;
-  readonly defaultCurrency?: Currency;
+  /**
+   * The currency to fall back on when the capture names none.
+   *
+   * Required, and deliberately not defaulted here. It used to be optional with
+   * `USD` behind it, and the voice screen simply never passed it — so someone
+   * who set the app up in euros spoke a spend and got dollars, with nothing on
+   * screen admitting where the code had come from. A required field turns that
+   * into a compile error on every future screen.
+   */
+  readonly defaultCurrency: Currency;
   /**
    * The redacted text the user just approved, when the offer was a remote one.
    * Absent for on-device reading, which needs no permission because nothing
@@ -69,7 +77,7 @@ export async function runAssist(request: AssistRequest): Promise<StructuredCandi
     {
       text: request.text,
       kind: request.kind,
-      defaultCurrency: request.defaultCurrency ?? CurrencySchema.parse('USD'),
+      defaultCurrency: request.defaultCurrency,
       now,
       ...(request.approvedText === undefined
         ? {}

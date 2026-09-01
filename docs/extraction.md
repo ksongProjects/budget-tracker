@@ -42,6 +42,30 @@ else they do.
 voice ("spent twelve bucks on coffee at Blue Bottle"). Line items are where rules
 genuinely fail: item-name columns have no cross-merchant convention.
 
+## The receipt table
+
+Between Tier 2 and Tier 3 the OCR lines are assembled into the two columns a receipt
+was printed as — one label, one value, per row (`packages/extract/src/table.ts`).
+Everything downstream reads that table rather than the raw lines.
+
+It is worth its own stage for three reasons:
+
+- **A row OCR could not price is kept, not dropped.** `amount: null` says exactly
+  where to look, which is the difference between asking a model to "read this
+  receipt" and asking it to fill three named gaps. The rendered table is what goes
+  to Tier 3, and it is what the consent screen shows.
+- **It is what the user edits.** The confirm screen shows every row, so a misread
+  line is visible before it reaches the Ledger rather than after. Confirmed rows are
+  stored in `line_items`; a subtotal or total row is not, since it restates the rows
+  around it and the total belongs to the transaction.
+- **Filling a gap is allowed; overwriting a printed number is not.** A model that
+  "corrects" a printed 4.50 has invented money. `fillTable` enforces that, and each
+  row records whether its value came from OCR, a model, or the user.
+
+The rows are not the authority on the amount. `transactions.amount_minor` is what the
+user confirmed, `reconciled` records whether the breakdown adds up to it, and where
+it does not the gap is shown rather than closed.
+
 ## Engines by platform
 
 | Job | iOS | Android | Web |
