@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AudioModule } from 'expo-audio';
 import { formatAmount } from '../src/voice/deps';
@@ -15,7 +15,17 @@ import {
 } from '../src/voice/model';
 import { whisperEngine } from '../src/voice/whisper';
 import { discardRecording, startRecording, stopRecording } from '../src/voice/recorder';
-import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme';
+import { useDefaultCurrency } from '../src/profile/context';
+import {
+  AmountHeader,
+  Card,
+  FormError,
+  FormWarning,
+  PrimaryButton,
+  QuietButton,
+  SecondaryButton,
+} from '../src/ui/form';
+import { colors, spacing, text } from '../src/ui/theme';
 
 /**
  * Speaking a spend.
@@ -31,6 +41,12 @@ import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from '../src/ui/theme
  */
 export default function VoiceScreen(): ReactNode {
   const router = useRouter();
+
+  // The currency this ledger records in. A spoken "twelve fifty" names no
+  // currency, and reading it as dollars on a phone set up in euros was a real
+  // bug: the number was right, the currency was invented, and nothing on screen
+  // said so.
+  const defaultCurrency = useDefaultCurrency();
 
   const [recording, setRecording] = useState(false);
   const [ready, setReady] = useState<boolean | undefined>(undefined);
@@ -102,7 +118,9 @@ export default function VoiceScreen(): ReactNode {
         // Through the tier router rather than straight to the rules: on a
         // phone with an on-device model the same transcript gets read by it,
         // and on every other phone this is the rules, exactly as before.
-        setCandidate(await runAssist({ text: spoken.text, kind: 'utterance' }));
+        setCandidate(
+          await runAssist({ text: spoken.text, kind: 'utterance', defaultCurrency }),
+        );
       } finally {
         // The words are kept for the user to check; the audio is not. Nothing
         // else in the app holds a recording of someone's voice, and a
@@ -116,6 +134,11 @@ export default function VoiceScreen(): ReactNode {
     }
   };
 
+  const heard = candidate?.currency;
+  // Only the transcript can name a currency. Where it did not, this is the
+  // user's own — shown as theirs, so a wrong one is a visible wrong one.
+  const currency = heard?.value ?? defaultCurrency;
+
   const useIt = (): void => {
     if (candidate?.total === undefined) return;
 
@@ -126,7 +149,7 @@ export default function VoiceScreen(): ReactNode {
       pathname: '/add',
       params: {
         amountMinor: String(candidate.total.value),
-        currency: candidate.currency?.value ?? 'USD',
+        currency,
         note: candidate.merchant?.value ?? transcript ?? '',
       },
     });
@@ -144,13 +167,16 @@ export default function VoiceScreen(): ReactNode {
             The model comes to your phone. Nothing you say is ever sent anywhere: once it is
             here, this works with no network at all.
           </Text>
-          <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void fetchModel()} disabled={busy}>
-            <Text style={styles.primaryText}>
-              {progress === undefined
-                ? 'Download the speech model'
-                : `Downloading ${String(Math.floor(progress * 100))}%…`}
-            </Text>
-          </Pressable>
+          <PrimaryButton
+            label="Download the speech model"
+            busyLabel={
+              progress === undefined
+                ? 'Downloading…'
+                : `Downloading ${String(Math.floor(progress * 100))}%…`
+            }
+            busy={busy}
+            onPress={() => void fetchModel()}
+          />
         </>
       )}
 
@@ -161,53 +187,55 @@ export default function VoiceScreen(): ReactNode {
           </Text>
 
           {recording ? (
-            <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void stopAndRead()} disabled={busy}>
-              <Text style={styles.primaryText}>Stop and read it</Text>
-            </Pressable>
+            <PrimaryButton label="Stop and read it" busy={busy} onPress={() => void stopAndRead()} />
           ) : (
-            <Pressable accessibilityRole="button" style={styles.primary} onPress={() => void record()} disabled={busy}>
-              <Text style={styles.primaryText}>{busy ? 'Working…' : 'Record'}</Text>
-            </Pressable>
+            <PrimaryButton
+              label="Record"
+              busyLabel="Working…"
+              busy={busy}
+              onPress={() => void record()}
+            />
           )}
 
           {transcript !== undefined && (
-            <View style={styles.card}>
+            <Card>
               <Text style={text.faint}>Heard</Text>
               <Text style={text.body}>{transcript}</Text>
-            </View>
+            </Card>
           )}
 
           {candidate?.total !== undefined && (
-            <View style={styles.card}>
-              <Text style={text.heading}>
-                {formatAmount(candidate.total.value, candidate.currency?.value ?? ('USD' as never))}{' '}
-                {candidate.currency?.value ?? 'USD'}
-              </Text>
+            <Card>
+              <AmountHeader
+                amount={formatAmount(candidate.total.value, currency)}
+                currency={currency}
+                note={
+                  heard === undefined
+                    ? `Your default — you did not name a currency. Change it on the next screen.`
+                    : `You said: ${heard.evidence}`
+                }
+                caption={`read from “${candidate.total.evidence}”`}
+              />
               {candidate.merchant !== undefined && (
                 <Text style={text.body}>at {candidate.merchant.value}</Text>
               )}
-              <Text style={text.faint}>read from &ldquo;{candidate.total.evidence}&rdquo;</Text>
-            </View>
+            </Card>
           )}
 
           {transcript !== undefined && candidate?.total === undefined && (
-            <Text style={styles.warn}>
-              No amount in that. Try naming one — &ldquo;four fifty at Blue Bottle&rdquo;.
-            </Text>
+            <FormWarning message="No amount in that. Try naming one — “four fifty at Blue Bottle”." />
           )}
 
           {candidate?.total !== undefined && (
-            <Pressable accessibilityRole="button" style={styles.secondary} onPress={useIt}>
-              <Text style={styles.secondaryText}>Use this</Text>
-            </Pressable>
+            <SecondaryButton label="Use this" onPress={useIt} />
           )}
 
           <View style={styles.divider} />
           <Text style={text.faint}>
             Speech model on this device: {(modelBytes / 1024 / 1024).toFixed(0)} MB.
           </Text>
-          <Pressable accessibilityRole="button"
-            style={styles.quiet}
+          <QuietButton
+            label="Delete the model"
             onPress={() => {
               Alert.alert(
                 'Delete the speech model?',
@@ -224,19 +252,11 @@ export default function VoiceScreen(): ReactNode {
                 ],
               );
             }}
-          >
-            <Text style={styles.quietText}>Delete the model</Text>
-          </Pressable>
+          />
         </>
       )}
 
-      {error !== null && <Text
-          accessibilityRole="alert"
-          accessibilityLiveRegion="assertive"
-          style={styles.error}
-        >
-          {error}
-        </Text>}
+      <FormError message={error} />
     </ScrollView>
   );
 }
@@ -248,36 +268,5 @@ function describe(cause: unknown): string {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.md, gap: spacing.md },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  primary: {
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  primaryText: { color: colors.accentText, fontWeight: '600', fontSize: 16 },
-  secondary: {
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  secondaryText: { color: colors.text, fontWeight: '600' },
-  quiet: {
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // Small print, full-size target: the text is quiet, the control is not.
-    minHeight: MIN_TOUCH_TARGET,
-  },
-  quietText: { color: colors.textMuted },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
-  warn: { color: colors.pending },
-  error: { color: colors.danger },
 });

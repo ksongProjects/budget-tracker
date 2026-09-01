@@ -4,6 +4,7 @@ import { parseUtterance } from './utterance.js';
 import { UTTERANCES } from './utterances.js';
 
 const USD = CurrencySchema.parse('USD');
+const EUR = CurrencySchema.parse('EUR');
 const NOW = Date.UTC(2026, 2, 18, 12); // A Wednesday.
 const DAY = 86_400_000;
 
@@ -127,5 +128,36 @@ describe('nothing to read', () => {
   it('returns an empty candidate for a sentence about nothing', () => {
     expect(parseUtterance('remind me to call the bank', { defaultCurrency: USD }).total)
       .toBeUndefined();
+  });
+});
+
+/**
+ * The ledger's own currency, when the sentence names none.
+ *
+ * A spoken "twelve fifty" says nothing about which currency, and reading it as
+ * dollars on a phone set up in euros is a wrong number that looks like a right
+ * one. The voice screen shipped exactly that bug by never passing the default
+ * down; this pins the layer underneath it.
+ */
+describe('the currency nobody said', () => {
+  it('falls back to the currency the caller records in, not to dollars', () => {
+    const candidate = parseUtterance('twelve fifty at Tartine', {
+      defaultCurrency: EUR,
+      now: NOW,
+    });
+
+    expect(candidate.currency?.value).toBe('EUR');
+    // Assumed, not heard — the screen shows it as the user's own default.
+    expect(candidate.currency?.confidence).toBeLessThan(0.5);
+  });
+
+  it('still prefers a currency the sentence does name', () => {
+    const candidate = parseUtterance('twelve dollars at Tartine', {
+      defaultCurrency: EUR,
+      now: NOW,
+    });
+
+    expect(candidate.currency?.value).toBe('USD');
+    expect(candidate.currency?.confidence).toBeGreaterThan(0.9);
   });
 });
