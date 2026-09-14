@@ -86,7 +86,7 @@ export function applyRules(request: StructuringRequest): StructuredCandidate {
           },
           // So a `$` on a receipt reads as the currency this user records in,
           // rather than as US dollars in every dollar-using country.
-          { defaultCurrency: request.defaultCurrency },
+          { defaultCurrency: request.defaultCurrency, now: request.now },
         );
 
   return {
