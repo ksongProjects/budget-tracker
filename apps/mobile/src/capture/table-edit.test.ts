@@ -7,6 +7,8 @@ import {
   blankRow,
   editableTotals,
   readAmount,
+  rowsNeedAttention,
+  summariseRows,
   toDrafts,
   toEditable,
   unanswered,
@@ -155,5 +157,104 @@ describe('amounts stay integers', () => {
 
     expect(readAmount('1.234', KWD)).toBe(1234 as MinorUnits);
     expect(readAmount('1.2345', KWD)).toBeNull();
+  });
+});
+
+
+/**
+ * What the confirm screen says about rows nobody has opened.
+ *
+ * The fold is only honest if this line is: it is the whole basis on which a
+ * user decides not to look at the rows before saving.
+ */
+describe('summariseRows', () => {
+  it('says nothing was read, when nothing was', () => {
+    expect(summariseRows([], USD, 500 as MinorUnits)).toBe(
+      'Nothing read from the photo — add rows by hand',
+    );
+  });
+
+  it('says both when rows are unpriced and the priced ones miss the total', () => {
+    const rows = [row({ key: 'a' }), row({ key: 'b', amount: '' }), row({ key: 'c', amount: '' })];
+
+    expect(summariseRows(rows, USD, 1650 as MinorUnits)).toBe(
+      '3 rows read · 2 without a price · 11.00 USD off the total',
+    );
+  });
+
+  it('does not claim unpriced rows add up, even when the priced ones reach the total', () => {
+    const rows = [row({ key: 'a', amount: '5.50' }), row({ key: 'b', amount: '' })];
+
+    expect(summariseRows(rows, USD, 550 as MinorUnits)).toBe('2 rows read · 1 without a price');
+  });
+
+  it('confirms the rows reach the total the user is about to save', () => {
+    const rows = [row({ key: 'a', amount: '5.50' }), row({ key: 'b', amount: '4.50' })];
+
+    expect(summariseRows(rows, USD, 1000 as MinorUnits)).toBe('2 rows read · they add up');
+  });
+
+  it('names the gap rather than closing it', () => {
+    const rows = [row({ key: 'a', amount: '5.50' }), row({ key: 'b', amount: '4.50' })];
+
+    expect(summariseRows(rows, USD, 1250 as MinorUnits)).toBe('2 rows read · 2.50 USD off the total');
+  });
+
+  it('reads the gap the same way round when the rows overshoot', () => {
+    const rows = [row({ key: 'a', amount: '5.50' }), row({ key: 'b', amount: '4.50' })];
+
+    expect(summariseRows(rows, USD, 750 as MinorUnits)).toBe('2 rows read · 2.50 USD off the total');
+  });
+
+  it('claims nothing about a total that has not been typed yet', () => {
+    const rows = [row({ key: 'a', amount: '5.50' })];
+
+    expect(summariseRows(rows, USD, null)).toBe('1 row read');
+  });
+});
+
+/**
+ * When the confirm screen opens the fold on its own.
+ *
+ * Found on a phone: a total row read as an item made the breakdown 88.44 against
+ * 49.55 charged, and it was saved from behind a closed fold.
+ */
+describe('rowsNeedAttention', () => {
+  it('leaves a receipt that adds up folded', () => {
+    const rows = [row({ key: 'a', amount: '5.50' }), row({ key: 'b', amount: '4.50' })];
+
+    expect(rowsNeedAttention(rows, USD, 1000 as MinorUnits)).toBe(false);
+  });
+
+  it('opens for rows that miss the total, either way round', () => {
+    const rows = [row({ key: 'a', amount: '5.50' }), row({ key: 'b', amount: '4.50' })];
+
+    expect(rowsNeedAttention(rows, USD, 1250 as MinorUnits)).toBe(true);
+    expect(rowsNeedAttention(rows, USD, 750 as MinorUnits)).toBe(true);
+  });
+
+  it('opens for a row still waiting for a price', () => {
+    const rows = [row({ key: 'a', amount: '5.50' }), row({ key: 'b', amount: '' })];
+
+    expect(rowsNeedAttention(rows, USD, 550 as MinorUnits)).toBe(true);
+  });
+
+  it('opens for the receipt that was saved wrong: a total counted as an item', () => {
+    const CAD = CurrencySchema.parse('CAD');
+    const rows = [
+      row({ key: 'a', label: 'Chocolate Bubble Waffle', amount: '9.72' }),
+      row({ key: 'b', label: 'Tax', amount: '2.36', kind: 'tax' }),
+      row({ key: 'c', label: 'Amount paid', amount: '49.55' }),
+      row({ key: 'd', label: 'CA', amount: '11.86' }),
+      row({ key: 'e', label: 'CA', amount: '14.95' }),
+    ];
+
+    expect(rowsNeedAttention(rows, CAD, 4955 as MinorUnits)).toBe(true);
+    expect(summariseRows(rows, CAD, 4955 as MinorUnits)).toBe('5 rows read · 38.89 CAD off the total');
+  });
+
+  it('has nothing to say with no rows, or no total to disagree with', () => {
+    expect(rowsNeedAttention([], USD, 1000 as MinorUnits)).toBe(false);
+    expect(rowsNeedAttention([row({ key: 'a' })], USD, null)).toBe(false);
   });
 });

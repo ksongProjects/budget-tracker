@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { KeyboardTypeOptions } from 'react-native';
 import type { Currency } from '@budget/schema';
 import { CurrencyField } from './currency-field';
+import { ChevronDown, ChevronRight, decorative } from './icons';
 import { MIN_TOUCH_TARGET, colors, radius, spacing, text } from './theme';
 
 /**
@@ -30,6 +32,68 @@ export function Card({ children }: { children: ReactNode }): ReactNode {
  * into it, and the screens that did that were the ones where a user had to
  * remember what they had answered.
  */
+/**
+ * Detail, folded away until it is wanted.
+ *
+ * A screen that records a spend needs four things on it: what it cost, who was
+ * paid, when, and Save. Everything else the app knows is worth keeping and not
+ * worth reading every time — so it goes in here, one line summarising what is
+ * inside so the fold is never a hiding place.
+ *
+ * The summary is the whole design. “Review” tells nobody anything; “12 items,
+ * 3 without a price” tells them whether to open it.
+ */
+export function Disclosure({
+  label,
+  summary,
+  open: held,
+  onOpenChange,
+  defaultOpen = false,
+  children,
+}: {
+  label: string;
+  summary?: string | undefined;
+  /**
+   * Held by the screen, for a screen that knows better than a default when the
+   * detail matters — the confirm screen opens it for rows that do not add up.
+   * Left out, the fold keeps its own state.
+   */
+  open?: boolean | undefined;
+  onOpenChange?: ((open: boolean) => void) | undefined;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}): ReactNode {
+  const [own, setOwn] = useState(defaultOpen);
+  const open = held ?? own;
+
+  return (
+    <View style={styles.disclosure}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={styles.disclosureHead}
+        onPress={() => {
+          const next = !open;
+          if (held === undefined) setOwn(next);
+          onOpenChange?.(next);
+        }}
+      >
+        <View style={styles.disclosureTitle}>
+          <Text style={text.body}>{label}</Text>
+          {summary !== undefined && <Text style={text.faint}>{summary}</Text>}
+        </View>
+        {open ? (
+          <ChevronDown {...decorative({ color: colors.textMuted })} />
+        ) : (
+          <ChevronRight {...decorative({ color: colors.textMuted })} />
+        )}
+      </Pressable>
+
+      {open && <View style={styles.disclosureBody}>{children}</View>}
+    </View>
+  );
+}
+
 export function Field({
   label,
   hint,
@@ -348,6 +412,26 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
     gap: spacing.sm,
+  },
+  disclosure: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  disclosureHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    minHeight: MIN_TOUCH_TARGET,
+  },
+  disclosureTitle: { flex: 1, gap: 2 },
+  disclosureBody: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    gap: spacing.md,
   },
   field: {
     backgroundColor: colors.surface,

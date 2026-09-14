@@ -100,6 +100,67 @@ export function editableTotals(rows: readonly EditableRow[], currency: Currency)
 }
 
 /**
+ * The receipt in one line, for a screen that keeps the rows folded away.
+ *
+ * "Review items" tells a user nothing, so they open the fold every time or
+ * never, and a row read wrong is found either way too late. A count, the rows
+ * still waiting for a price, and whether the rest reach the total they are
+ * about to save are enough to judge it without opening anything.
+ *
+ * The gap is named, never closed: a discount line, a row OCR missed and a
+ * misread digit all look the same to arithmetic.
+ */
+export function summariseRows(
+  rows: readonly EditableRow[],
+  currency: Currency,
+  total: MinorUnits | null,
+): string {
+  if (rows.length === 0) return 'Nothing read from the photo — add rows by hand';
+
+  const totals = editableTotals(rows, currency);
+  const parts = [`${String(rows.length)} ${rows.length === 1 ? 'row' : 'rows'} read`];
+
+  if (totals.missing > 0) {
+    parts.push(`${String(totals.missing)} without a price`);
+  }
+
+  // Both facts when both are true. Saying only "4 without a price" once hid a
+  // breakdown 38.89 out on a 49.55 bill: the unpriced rows were the smaller
+  // problem, and the line that should have stopped the save never showed.
+  if (total !== null && totals.itemisedTotal !== total) {
+    const gap = Math.abs(total - totals.itemisedTotal) as MinorUnits;
+    parts.push(`${formatAmount(gap, currency)} ${currency} off the total`);
+  } else if (total !== null && totals.missing === 0) {
+    parts.push('they add up');
+  }
+
+  return parts.join(' · ');
+}
+
+/**
+ * Whether the rows should be in front of the user before they save.
+ *
+ * The confirm screen keeps a receipt that adds up folded away, because a clean
+ * receipt is detail. One that does not is not detail: a row is unpriced, or the
+ * priced rows miss the total, and either way the breakdown about to be stored
+ * disagrees with the number the user is confirming.
+ *
+ * No total typed yet claims nothing — there is nothing to disagree with.
+ */
+export function rowsNeedAttention(
+  rows: readonly EditableRow[],
+  currency: Currency,
+  total: MinorUnits | null,
+): boolean {
+  if (rows.length === 0) return false;
+
+  const totals = editableTotals(rows, currency);
+  if (totals.missing > 0) return true;
+
+  return total !== null && totals.itemisedTotal !== total;
+}
+
+/**
  * Which of these rows belong in the ledger's breakdown.
  *
  * A subtotal and a total are not purchases — they restate the rows around them,
