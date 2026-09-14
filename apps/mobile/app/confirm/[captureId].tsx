@@ -12,7 +12,7 @@ import { useLedger } from '../../src/db/provider';
 import { useDefaultCurrency } from '../../src/profile/context';
 import { documentPath } from '../../src/capture/documents';
 import { loadOcrEngine } from '../../src/capture/ocr';
-import { toDrafts, toEditable } from '../../src/capture/table-edit';
+import { rowsNeedAttention, summariseRows, toDrafts, toEditable } from '../../src/capture/table-edit';
 import type { EditableRow } from '../../src/capture/table-edit';
 import { fromDay, toDay } from '../../src/lib/day';
 import {
@@ -28,6 +28,7 @@ import {
 import {
   AmountHeader,
   Card,
+  Disclosure,
   FormError,
   Keypad,
   PrimaryButton,
@@ -47,10 +48,14 @@ const EMPTY_TABLE: ReceiptTable = { header: [], rows: [], engine: '' };
  * until Save, and the row is written already confirmed because the user just
  * looked at the numbers and agreed to them.
  *
- * The receipt is shown as the table it was printed as — every row the rules
- * found, editable where it is wrong, with the unpriced ones marked. That is a
- * different promise from the old screen, which showed a total and hid the rest:
- * a misread line is now visible before it reaches the ledger rather than after.
+ * Four things make a record: what it cost, who was paid, when, and Save. Those
+ * are the screen. The receipt table is real work and still here, but it is
+ * detail — folded into a disclosure whose one-line summary says how many rows
+ * were read, how many have no price, and whether they add up to the total.
+ *
+ * When they do not, the fold opens itself. On a real phone a breakdown 38.89 out
+ * on a 49.55 bill was saved from behind a closed one, and a gap that size is not
+ * detail. A receipt that adds up still costs one screen to confirm.
  */
 export default function ConfirmScreen(): ReactNode {
   const { captureId } = useLocalSearchParams<{ captureId: string }>();
@@ -77,6 +82,11 @@ export default function ConfirmScreen(): ReactNode {
   const [assisting, setAssisting] = useState(false);
   const [readBy, setReadBy] = useState<string | undefined>(undefined);
 
+  // Held here rather than in the fold, so a reading that does not add up can
+  // open it. Only a reading opens it: typing on the keypad changes the summary
+  // live but never moves the layout under a thumb that is mid-entry.
+  const [detailOpen, setDetailOpen] = useState(false);
+
   /**
    * What a model would be given: the table, not the raw OCR dump.
    *
@@ -85,6 +95,13 @@ export default function ConfirmScreen(): ReactNode {
    * what the consent screen shows, because it is the same string.
    */
   const tableText = useMemo(() => renderTable(table, amount.currency), [table, amount.currency]);
+
+  // One line standing in for the folded rows. The arithmetic lives in
+  // table-edit, where it is tested without a device.
+  const detailSummary = useMemo(
+    () => summariseRows(rows, amount.currency, toMinorUnits(amount)),
+    [rows, amount],
+  );
 
   useEffect(() => {
     // Read through a function: TypeScript keeps property narrowing across an
@@ -110,13 +127,18 @@ export default function ConfirmScreen(): ReactNode {
         const result = await engine.recognize(path);
         if (cancelled()) return;
 
-        const proposed = extractReceipt(result, { defaultCurrency: DEFAULT_CURRENCY });
+        const proposed = extractReceipt(result, { defaultCurrency: DEFAULT_CURRENCY, now: now() });
         const built = buildReceiptTable(result);
         const currency = proposed.currency?.value ?? DEFAULT_CURRENCY;
 
+        const editable = toEditable(built, currency);
+
         setCandidate(proposed);
         setTable(built);
-        setRows(toEditable(built, currency));
+        setRows(editable);
+        if (rowsNeedAttention(editable, currency, proposed.total?.value ?? null)) {
+          setDetailOpen(true);
+        }
 
         if (proposed.total) {
           setAmount(fromMinorUnits(proposed.total.value, currency));
@@ -295,68 +317,75 @@ export default function ConfirmScreen(): ReactNode {
           : {})}
       />
 
-      <ReceiptTableEditor rows={rows} currency={amount.currency} onChange={setRows} />
+      <Disclosure
+        label="What was on the receipt"
+        summary={detailSummary}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      >
+        <ReceiptTableEditor rows={rows} currency={amount.currency} onChange={setRows} />
 
-      {readBy !== undefined && <Text style={text.faint}>Gaps filled by {readBy}.</Text>}
+        {readBy !== undefined && <Text style={text.faint}>Gaps filled by {readBy}.</Text>}
 
-      {candidate.cardLast4 && (
-        <Text style={text.faint}>Card ending {candidate.cardLast4.value}</Text>
-      )}
+        {candidate.cardLast4 && (
+          <Text style={text.faint}>Card ending {candidate.cardLast4.value}</Text>
+        )}
 
-      {status === 'ready' && offer?.available === true && readBy === undefined && !asking && (
-        <SecondaryButton
-          label={offer.label}
-          busyLabel="Reading…"
-          busy={assisting}
-          onPress={() => {
-            // A remote reading is a decision, so it gets a screen. A local one
-            // is not, so it does not.
-            if (offer.remote) setAsking(true);
-            else void assist();
-          }}
-        />
-      )}
+        {status === 'ready' && offer?.available === true && readBy === undefined && !asking && (
+          <SecondaryButton
+            label={offer.label}
+            busyLabel="Reading…"
+            busy={assisting}
+            onPress={() => {
+              // A remote reading is a decision, so it gets a screen. A local one
+              // is not, so it does not.
+              if (offer.remote) setAsking(true);
+              else void assist();
+            }}
+          />
+        )}
 
-      {asking && (
-        <Card>
-          <Text style={text.heading}>Send this text?</Text>
-          <Text style={text.body}>
-            This is everything that would leave your phone, using your own API key. The photo stays
-            here, and so does your ledger.
-          </Text>
-          <ScrollView style={styles.consentText} nestedScrollEnabled>
-            <Text style={styles.monospace}>{textToSend(tableText)}</Text>
-          </ScrollView>
-          <Text style={text.faint}>
-            Card and account numbers are masked above. This permission covers this one capture.
-          </Text>
-          <View style={styles.consentButtons}>
-            <View style={styles.consentButton}>
-              <SecondaryButton
-                label="Not this time"
-                onPress={() => {
-                  setAsking(false);
-                }}
-              />
+        {asking && (
+          <Card>
+            <Text style={text.heading}>Send this text?</Text>
+            <Text style={text.body}>
+              This is everything that would leave your phone, using your own API key. The photo stays
+              here, and so does your ledger.
+            </Text>
+            <ScrollView style={styles.consentText} nestedScrollEnabled>
+              <Text style={styles.monospace}>{textToSend(tableText)}</Text>
+            </ScrollView>
+            <Text style={text.faint}>
+              Card and account numbers are masked above. This permission covers this one capture.
+            </Text>
+            <View style={styles.consentButtons}>
+              <View style={styles.consentButton}>
+                <SecondaryButton
+                  label="Not this time"
+                  onPress={() => {
+                    setAsking(false);
+                  }}
+                />
+              </View>
+              <View style={styles.consentButton}>
+                <PrimaryButton
+                  label="Send this text"
+                  onPress={() => void assist(textToSend(tableText))}
+                />
+              </View>
             </View>
-            <View style={styles.consentButton}>
-              <PrimaryButton
-                label="Send this text"
-                onPress={() => void assist(textToSend(tableText))}
-              />
-            </View>
-          </View>
-        </Card>
-      )}
+          </Card>
+        )}
 
-      {status === 'ready' && offer?.available === false && (
-        <QuietButton
-          label="No model on this phone, so nothing can fill a row the camera could not read. What that means →"
-          onPress={() => {
-            router.push('/assist');
-          }}
-        />
-      )}
+        {status === 'ready' && offer?.available === false && (
+          <QuietButton
+            label="No model on this phone, so nothing can fill a row the camera could not read. What that means →"
+            onPress={() => {
+              router.push('/assist');
+            }}
+          />
+        )}
+      </Disclosure>
 
       <FormError message={error} />
 

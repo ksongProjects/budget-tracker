@@ -16,7 +16,11 @@ import type { Candidate, CandidateTransaction, OcrLine, OcrResult } from './type
 
 /** Ordered strongest first — an explicit "grand total" beats a bare "total". */
 const TOTAL_LABELS: readonly { readonly pattern: RegExp; readonly confidence: number }[] = [
-  { pattern: /\b(grand\s*total|amount\s*due|balance\s*due|total\s*due)\b/i, confidence: 0.95 },
+  {
+    // "Amount paid" is how order tickets say total.
+    pattern: /\b(grand\s*total|amount\s*due|balance\s*due|total\s*due|amount\s*paid|total\s*paid)\b/i,
+    confidence: 0.95,
+  },
   { pattern: /\b(total)\b/i, confidence: 0.85 },
   // The same word in the languages a traveller's receipts are printed in.
   // Without these a German receipt falls through to the largest amount on it,
@@ -33,10 +37,20 @@ const TAX_LABEL = /\b(sales\s*tax|tax|vat|gst|hst)\b/i;
 const TIP_LABEL = /\b(tip|gratuity)\b/i;
 
 /**
- * A money amount. Requires either a currency symbol or two decimal places, so
- * that a quantity, a street number, or a phone number is not read as a price.
+ * A money amount. Requires two decimal places, so that a quantity, a street
+ * number, or a phone number is not read as a price.
+ *
+ * What is printed in front belongs to the amount, including the country some
+ * receipts put before the dollar sign: `CA$11.86`, `US$5.00`, `NZ$ 4.50`. A
+ * Canadian café ticket read without that came back as `$11.86` with a stray
+ * `CA` left over, and the `CA` became the name of every item on it.
+ *
+ * `CAŠ` and `CAS` are how ML Kit reads `CA$` in small print. They count only
+ * straight after a two-letter country, and a plain `S` only when a digit
+ * follows at once, so `CASH 20.00` keeps its name.
  */
-const AMOUNT = /(?:([$€£¥])\s*)?(\d{1,3}(?:[,\s]\d{3})*|\d+)([.,]\d{2})(?!\d)/g;
+const AMOUNT =
+  /(?:(?:\b(?:CA|US|AU|NZ|HK|A|C|S)\$|[$€£¥])\s*|\b(?:CA|US|AU|NZ|HK)(?:[Š§]\s*|S(?=\d)))?(\d{1,3}(?:[,\s]\d{3})*|\d+)([.,]\d{2})(?!\d)/g;
 
 /**
  * A fresh matcher over the same pattern.
@@ -90,8 +104,11 @@ export function mergeColumns(lines: readonly OcrLine[]): OcrLine[] {
   const centre = (line: OcrLine): number | undefined =>
     line.box ? line.box.y + line.box.height / 2 : undefined;
 
+  // Letters left once the amounts are cut out mean a label shares the line.
+  // Cutting the amounts, rather than a list of symbols, is what lets `CA$11.86`
+  // count as price-only: the country belongs to the amount, not to a label.
   const isAmountOnly = (line: OcrLine): boolean =>
-    amountsIn(line.text).length > 0 && /^[^a-z]*$/i.test(line.text.replace(/[\d.,$€£¥\s-]/g, ''));
+    amountsIn(line.text).length > 0 && !/[a-z]/i.test(line.text.replace(amountPattern(), ''));
 
   const heights = lines
     .map((line) => line.box?.height)
@@ -151,6 +168,12 @@ export interface ReceiptOptions {
    * override one the receipt states outright.
    */
   readonly defaultCurrency?: Currency;
+  /**
+   * When the receipt was captured. Needed only to place a date printed without
+   * a year, such as an order ticket's `September 12`; left out, such a date is
+   * not read at all rather than given a year by guesswork.
+   */
+  readonly now?: number;
 }
 
 export function extractReceipt(
@@ -175,7 +198,7 @@ export function extractReceipt(
   const currency = findCurrency(lines, options.defaultCurrency);
   if (currency) candidate.currency = currency;
 
-  const occurredAt = findDate(lines);
+  const occurredAt = findDate(lines, options.now);
   if (occurredAt) candidate.occurredAt = occurredAt;
 
   const merchant = findMerchant(lines);
@@ -268,8 +291,8 @@ export function amountsIn(text: string): MinorUnits[] {
   const found: MinorUnits[] = [];
 
   for (const match of text.matchAll(AMOUNT)) {
-    const whole = (match[2] ?? '').replace(/[,\s]/g, '');
-    const fraction = (match[3] ?? '').replace(',', '.');
+    const whole = (match[1] ?? '').replace(/[,\s]/g, '');
+    const fraction = (match[2] ?? '').replace(',', '.');
 
     try {
       // Parsed through the money helpers so the no-floats rule holds here too.
@@ -301,6 +324,17 @@ function findCurrency(
     }
   }
 
+  // A country printed against the dollar sign is a statement too: `CA$11.86`
+  // says Canada in a way a bare `$` never does. `C$` is left alone, because
+  // Canada prints it and so does Nicaragua.
+  for (const line of lines) {
+    const prefix = DOLLAR_PREFIX.exec(line.text)?.[1];
+    const code = prefix === undefined ? undefined : PREFIX_CURRENCY[prefix];
+    if (code !== undefined) {
+      return { value: CurrencySchema.parse(code), confidence: 0.75, evidence: line.text.trim() };
+    }
+  }
+
   // Nothing stated it. The caller's own currency, at a confidence that says
   // the receipt did not say so — which is what makes the screen show it as
   // something to check rather than something read.
@@ -312,6 +346,16 @@ function findCurrency(
 /** ISO codes common enough to appear on a receipt. */
 const CODE_IN_LINE = /\b(USD|EUR|GBP|JPY|CHF|CAD|AUD|NZD|SEK|NOK|DKK|PLN|CZK)\b/i;
 const AMOUNT_ON_LINE = /\d+[.,]\d{2}\b/;
+
+/** A country written against the dollar sign, directly before a price. */
+const DOLLAR_PREFIX = /\b(CA|US|AU|NZ|A)\$\s*\d/;
+const PREFIX_CURRENCY: Readonly<Record<string, string>> = {
+  CA: 'CAD',
+  US: 'USD',
+  AU: 'AUD',
+  A: 'AUD',
+  NZ: 'NZD',
+};
 
 const DATE_PATTERNS: readonly { readonly pattern: RegExp; readonly order: 'dmy' | 'mdy' | 'ymd' }[] =
   [
@@ -326,7 +370,10 @@ const DATE_PATTERNS: readonly { readonly pattern: RegExp; readonly order: 'dmy' 
  * month-first and lower the confidence when the reading is ambiguous, so the
  * confirm screen can flag it rather than quietly filing the wrong month.
  */
-function findDate(lines: readonly OcrLine[]): Candidate<Timestamp> | undefined {
+function findDate(
+  lines: readonly OcrLine[],
+  now: number | undefined,
+): Candidate<Timestamp> | undefined {
   for (const line of lines) {
     for (const { pattern, order } of DATE_PATTERNS) {
       const match = pattern.exec(line.text);
@@ -358,22 +405,133 @@ function findDate(lines: readonly OcrLine[]): Candidate<Timestamp> | undefined {
         evidence: line.text.trim(),
       };
     }
+
+    const named = readNamedDate(line.text, now);
+    if (named) return { ...named, evidence: line.text.trim() };
   }
   return undefined;
 }
 
-const NOT_A_MERCHANT =
-  /^\s*(?:receipt|invoice|order|table|server|cashier|welcome|thank\s*you|customer\s*copy|merchant\s*copy|\d[\d\s\-()+.]*|.{0,2})\s*$/i;
+const DAY_MS = 86_400_000;
+
+const MONTH_NAME =
+  '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?![a-z])';
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** `September 12`, `Sep. 12th, 2026`. A time straight after is not a day. */
+const MONTH_FIRST = new RegExp(
+  `\\b${MONTH_NAME}\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?![\\d:])(?:,?\\s+(\\d{4})\\b)?`,
+  'i',
+);
+/** `12 September 2026`, `12 Sep`. */
+const DAY_FIRST = new RegExp(
+  `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+${MONTH_NAME}\\.?(?:,?\\s+(\\d{4})\\b)?`,
+  'i',
+);
 
 /**
- * The merchant name: the first substantial line at the top of the receipt.
- * Receipts put the shop name in the header, above the address and the phone
- * number, which is why this looks only at the first few lines.
+ * Above the 0.7 below which the confirm screen warns that day and month may be
+ * swapped — a named month cannot be — and below a date that printed its year.
+ */
+const YEARLESS_CONFIDENCE = 0.75;
+
+/**
+ * A date written with the month's name: `September 12, 2026`, `12 Sep 2026`,
+ * and the year-less `September 12` an order ticket prints.
+ *
+ * A year-less date is placed in the most recent year that does not put it in
+ * the future, since a receipt records something that already happened. That
+ * takes `now`; without it the date is not read, rather than given a year by
+ * guesswork.
+ */
+function readNamedDate(
+  text: string,
+  now: number | undefined,
+): { readonly value: Timestamp; readonly confidence: number } | undefined {
+  const monthFirst = MONTH_FIRST.exec(text);
+  const dayFirst = monthFirst === null ? DAY_FIRST.exec(text) : null;
+
+  const monthName = monthFirst?.[1] ?? dayFirst?.[2];
+  const dayText = monthFirst?.[2] ?? dayFirst?.[1];
+  const yearText = monthFirst?.[3] ?? dayFirst?.[3];
+  if (monthName === undefined || dayText === undefined) return undefined;
+
+  const month = MONTHS.indexOf(monthName.slice(0, 3).toLowerCase());
+  const day = Number(dayText);
+  const printed = yearText === undefined ? undefined : Number(yearText);
+  const printedYear =
+    printed !== undefined && printed >= 1990 && printed <= 2100 ? printed : undefined;
+
+  let year: number;
+  if (printedYear !== undefined) {
+    year = printedYear;
+  } else {
+    if (now === undefined) return undefined;
+    year = new Date(now).getFullYear();
+    // A day's grace, for a receipt printed a timezone ahead of the phone.
+    if (new Date(year, month, day, 12).getTime() > now + DAY_MS) year -= 1;
+  }
+
+  const date = new Date(year, month, day, 12);
+  // `new Date` rolls February 30th into March. A date that moved never existed.
+  if (month === -1 || date.getMonth() !== month || date.getDate() !== day) return undefined;
+
+  return {
+    value: date.getTime() as Timestamp,
+    confidence: printedYear === undefined ? YEARLESS_CONFIDENCE : 0.9,
+  };
+}
+
+const NOT_A_MERCHANT =
+  /^\s*(?:receipt|invoice|order|table|server|cashier|welcome|thank\s*you|customer\s*copy|merchant\s*copy|(?:new|returning)\s*customer|customer|guest|pick\s*-?\s*up|dine\s*-?\s*in|take\s*-?\s*out|to\s*go|delivery|\d[\d\s\-()+.]*|.{0,2})\s*$/i;
+
+/**
+ * A field the till prints, not a name: `Store#: 40832`, `Disposable items: No`,
+ * `Order #1234`. A label and a colon, or a number sign before digits. Real
+ * receipts had both at the top, where the name was expected, and each was
+ * filed as the merchant.
+ */
+const FIELD_LINE = /^[^:]{1,30}:\s*\S|#\s*:?\s*\d/;
+
+/**
+ * The shop naming itself in the sign-off. Order tickets print the customer at
+ * the top and the business only here, so this is read first: the header of
+ * such a receipt is a person, and a user's own name filed as the merchant is a
+ * privacy problem as well as a wrong answer.
+ */
+const SIGN_OFF =
+  /\b(?:thank\s*you\s*for\s*(?:ordering|shopping|visiting|dining|choosing)(?:\s+(?:from|at|with))?|order(?:ed|ing)\s+from)\b\s*(.*?)[\s.!]*$/i;
+
+/** "Thank you for shopping with us" names nobody. */
+const NOT_A_NAME = /^(?:us|me|we|our\b.*|you\b.*)?$/i;
+
+/**
+ * The merchant name: the sign-off when a receipt has one, then the first
+ * substantial line at the top. Receipts put the shop name in the header, above
+ * the address and the phone number, which is why that looks only at the first
+ * few lines.
  */
 function findMerchant(lines: readonly OcrLine[]): Candidate<string> | undefined {
+  for (const [index, line] of lines.entries()) {
+    const signOff = SIGN_OFF.exec(line.text);
+    if (!signOff) continue;
+
+    // The name often wraps onto the line below the thanks.
+    const named = signOff[1]?.trim() ?? '';
+    const next = lines[index + 1]?.text.trim() ?? '';
+    const name = named === '' ? next : named;
+
+    if (NOT_A_NAME.test(name) || NOT_A_MERCHANT.test(name)) continue;
+    if (name.length > 40 || !/[a-z]/i.test(name) || amountsIn(name).length > 0) continue;
+
+    const evidence = named === '' ? `${line.text.trim()} ${name}` : line.text.trim();
+    return { value: name, confidence: 0.75, evidence };
+  }
+
   for (const line of lines.slice(0, 5)) {
     const text = line.text.trim();
     if (NOT_A_MERCHANT.test(text)) continue;
+    if (FIELD_LINE.test(text)) continue;
     if (amountsIn(text).length > 0) continue;
     // A line that is mostly digits is an address or a phone number.
     if ((text.replace(/\D/g, '').length / text.length) > 0.4) continue;

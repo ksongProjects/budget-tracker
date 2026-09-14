@@ -56,8 +56,10 @@ const KINDS: readonly { readonly pattern: RegExp; readonly kind: ReceiptRowKind 
     kind: 'fee',
   },
   {
+    // "Amount paid" is how order tickets say total. Read as an item, it was
+    // stored as shopping and doubled the breakdown it belonged to.
     pattern:
-      /\b(grand\s*total|amount\s*due|balance\s*due|total\s*due|total|summe|gesamt|totale|importe|montant|totaal)\b/i,
+      /\b(grand\s*total|amount\s*due|balance\s*due|total\s*due|amount\s*paid|total\s*paid|paid|total|summe|gesamt|totale|importe|montant|totaal)\b/i,
     kind: 'total',
   },
 ];

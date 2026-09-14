@@ -16,7 +16,14 @@ import {
 } from '@budget/crypto';
 import { readArchive, writeArchive } from '@budget/backup';
 import { createNativeSodiumBackend } from '../src/crypto/backend';
-import { applyRules, extractReceipt, formatScore, readWavHeader, scoreEngine } from '@budget/extract';
+import {
+  applyRules,
+  buildReceiptTable,
+  extractReceipt,
+  formatScore,
+  readWavHeader,
+  scoreEngine,
+} from '@budget/extract';
 import type { StructuringEngine } from '@budget/extract';
 import { CurrencySchema, formatAmount } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
@@ -52,6 +59,9 @@ import { colors, radius, spacing, text } from '../src/ui/theme';
  * is the bug this constant would cause anywhere but here.
  */
 const FIXTURE_CURRENCY = CurrencySchema.parse('USD');
+
+/** Whole pixels: sub-pixel box edges are noise when reading a page layout. */
+const round = (n: number): string => n.toFixed(0);
 
 /**
  * Runs the shared driver contract against the real expo-sqlite driver, on the
@@ -91,6 +101,11 @@ export default function DiagnosticsScreen(): ReactNode {
   const [running, setRunning] = useState(false);
   const [ocr, setOcr] = useState<string[]>([]);
   const [ocrRunning, setOcrRunning] = useState(false);
+  const [captureOcr, setCaptureOcr] = useState<{ lines: string[]; json: string }>({
+    lines: [],
+    json: '',
+  });
+  const [captureOcrRunning, setCaptureOcrRunning] = useState(false);
   const [cryptoResults, setCryptoResults] = useState<Result[]>([]);
   const [cryptoRunning, setCryptoRunning] = useState(false);
   const [archiveLines, setArchiveLines] = useState<string[]>([]);
@@ -503,6 +518,93 @@ export default function DiagnosticsScreen(): ReactNode {
   };
 
   /**
+   * Runs the real OCR engine over the newest photo in this ledger and prints
+   * exactly what came back, geometry included.
+   *
+   * The known-receipt check below proves the seam on a receipt we drew. This is
+   * for the receipt that broke: a café ticket with CA$ prices and wrapped names
+   * came through the rules as a breakdown 38.89 out, and rules can only be fixed
+   * against what the engine really emitted for it, not against a guess at how
+   * it splits a page.
+   *
+   * The output is someone's real receipt, so it stays on this screen. Nothing is
+   * written to disk, and a fixture made from it is redacted before it is
+   * committed.
+   */
+  const runLatestCaptureOcr = async (): Promise<void> => {
+    setCaptureOcrRunning(true);
+    setCaptureOcr({ lines: [], json: '' });
+
+    const lines: string[] = [];
+    const engine = loadOcrEngine();
+
+    try {
+      if (!engine) {
+        setCaptureOcr({
+          lines: ['No OCR engine — this is Expo Go. Use a development build.'],
+          json: '',
+        });
+        return;
+      }
+
+      const capture = await ledger.driver.get<{
+        capture_id: string;
+        document_path: string;
+        captured_at: number;
+      }>(
+        `SELECT capture_id, document_path, captured_at FROM captures
+          WHERE kind = 'photo' AND deleted_at IS NULL AND document_path IS NOT NULL
+          ORDER BY captured_at DESC LIMIT 1`,
+      );
+
+      if (!capture) {
+        setCaptureOcr({ lines: ['No photo captures in this ledger yet.'], json: '' });
+        return;
+      }
+
+      const result = await engine.recognize(capture.document_path);
+      lines.push(
+        `capture ${capture.capture_id}, taken ${new Date(capture.captured_at).toISOString()}`,
+      );
+      lines.push(
+        `engine ${result.engine}, ${String(result.lines.length)} lines, ${String(result.durationMs)} ms`,
+      );
+
+      // In engine order, with the box: how ML Kit groups and splits the page is
+      // the whole question. y first, because rows are found by it.
+      lines.push('--- raw lines: i  y h x w  text ---');
+      for (const [i, line] of result.lines.entries()) {
+        const b = line.box;
+        const at = b ? `${round(b.y)} ${round(b.height)} ${round(b.x)} ${round(b.width)}` : 'no box';
+        lines.push(`${String(i)}  ${at}  ${JSON.stringify(line.text)}`);
+      }
+
+      // What the current rules make of it, so a fix can be judged against this.
+      lines.push('--- table rows: kind  amount  label ---');
+      for (const row of buildReceiptTable(result).rows) {
+        const amount = row.amount === null ? '?' : String(row.amount);
+        lines.push(`${row.kind}  ${amount}  ${JSON.stringify(row.label)}`);
+      }
+
+      // When the photo was taken places a date the receipt printed without a year.
+      const candidate = extractReceipt(result, { now: capture.captured_at });
+      const total = candidate.total === undefined ? 'not found' : String(candidate.total.value);
+      const merchant = JSON.stringify(candidate.merchant?.value ?? null);
+      const date = candidate.occurredAt
+        ? new Date(candidate.occurredAt.value).toISOString()
+        : 'not found';
+      lines.push(`total ${total} · merchant ${merchant} · date ${date}`);
+
+      setCaptureOcr({ lines, json: JSON.stringify(result.lines) });
+    } catch (cause) {
+      lines.push(`failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+      setCaptureOcr({ lines, json: '' });
+    } finally {
+      setCaptureOcrRunning(false);
+    }
+  };
+
+  /**
    * Runs the real OCR engine over a known receipt and reports what the tier-2
    * rules made of it. The rules are unit-tested against fixture text; this is
    * the only check of the seam between a real engine's output and those rules.
@@ -694,6 +796,33 @@ export default function DiagnosticsScreen(): ReactNode {
         database this app actually uses.
       </Text>
 
+      <Pressable
+        accessibilityRole="button"
+        style={styles.button}
+        onPress={() => void runLatestCaptureOcr()}
+        disabled={captureOcrRunning}
+      >
+        <Text style={styles.buttonText}>
+          {captureOcrRunning ? 'Reading…' : 'Run OCR on my latest capture'}
+        </Text>
+      </Pressable>
+
+      {captureOcr.lines.map((line, i) => (
+        // Index keys: two lines of one receipt can read identically.
+        <View key={String(i)} style={styles.row}>
+          <Text style={styles.pass}>{line}</Text>
+        </View>
+      ))}
+
+      {captureOcr.json !== '' && (
+        <View style={styles.row}>
+          <Text style={text.faint}>Engine output, exactly, for a fixture:</Text>
+          <Text selectable style={styles.monospace}>
+            {captureOcr.json}
+          </Text>
+        </View>
+      )}
+
       <Pressable accessibilityRole="button" style={styles.button} onPress={() => void run()} disabled={running}>
         <Text style={styles.buttonText}>{running ? 'Running…' : 'Run driver contract'}</Text>
       </Pressable>
@@ -843,4 +972,5 @@ const styles = StyleSheet.create({
   pass: { color: colors.text },
   fail: { color: colors.danger },
   errorText: { color: colors.danger, fontSize: 12 },
+  monospace: { color: colors.textMuted, fontFamily: 'monospace', fontSize: 11 },
 });

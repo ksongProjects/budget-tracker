@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import {
   Camera,
+  ChevronDown,
   ChevronLeft,
+  ChevronRight,
   CircleUser,
   Download,
   FileText,
@@ -32,7 +34,9 @@ import { colors } from './colors';
 
 export {
   Camera,
+  ChevronDown,
   ChevronLeft,
+  ChevronRight,
   CircleUser,
   Download,
   FileText,

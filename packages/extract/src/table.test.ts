@@ -226,3 +226,59 @@ describe('fillTable', () => {
     expect(added?.evidence).toBe('');
   });
 });
+
+/**
+ * A Canadian café ticket, in the shape ML Kit reports: the item column and a
+ * `CA$` price column as separate lines. Read on a real phone, every `CA$`
+ * price left a `CA` behind as the item's name, the names themselves dropped
+ * out as unpriced rows, and "Amount paid" was stored as shopping.
+ */
+describe('a ticket that prints CA$ prices', () => {
+  const TICKET: OcrResult = {
+    engine: 'mlkit',
+    durationMs: 0,
+    lines: [
+      line('1 x Eggcellent', 300, 0.06, 0.3),
+      line('1 x Double Double Eggie Sando', 340, 0.06, 0.55),
+      line('Subtotal', 420, 0.06, 0.15),
+      line('Tax', 460, 0.06, 0.08),
+      line('Amount paid', 500, 0.06, 0.2),
+      line('CA$11.86', 300, 0.72, 0.18),
+      line('CA$14.95', 340, 0.72, 0.18),
+      line('$26.81', 420, 0.74, 0.14),
+      line('$1.34', 460, 0.76, 0.12),
+      line('$28.15', 500, 0.74, 0.14),
+    ],
+  };
+
+  it('pairs each CA$ price with its item and leaves no CA behind as a name', () => {
+    const table = buildReceiptTable(TICKET);
+
+    expect(table.rows.map((r) => [r.label, r.amount])).toEqual([
+      ['Eggcellent', 1186],
+      ['Double Double Eggie Sando', 1495],
+      ['Subtotal', 2681],
+      ['Tax', 134],
+      ['Amount paid', 2815],
+    ]);
+  });
+
+  it('reads "Amount paid" as the total, so the breakdown adds up instead of doubling', () => {
+    const table = buildReceiptTable(TICKET);
+
+    expect(table.rows.map((r) => r.kind)).toEqual(['item', 'item', 'subtotal', 'tax', 'total']);
+    expect(tableTotals(table.rows).balanced).toBe(true);
+  });
+
+  it('keeps an item name when OCR misreads the $ of a CA$ price on the same line', () => {
+    const table = buildReceiptTable({
+      engine: 'mlkit',
+      durationMs: 0,
+      lines: [{ text: '1 x Chocolate Bubble Waffle CAŠ 9.72' }],
+    });
+
+    expect(table.rows.map((r) => [r.label, r.amount, r.quantity])).toEqual([
+      ['Chocolate Bubble Waffle', 972, 1],
+    ]);
+  });
+});

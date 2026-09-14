@@ -29,6 +29,18 @@ describe('amountsIn', () => {
     expect(amountsIn('TOTAL 12,34')).toEqual([1234]);
   });
 
+  it('reads the country some receipts print before the dollar sign as part of the price', () => {
+    expect(amountsIn('CA$11.86')).toEqual([1186]);
+    expect(amountsIn('US$5.00')).toEqual([500]);
+    expect(amountsIn('NZ$ 4.50')).toEqual([450]);
+  });
+
+  it('reads CA$ through the misreads ML Kit makes of it in small print', () => {
+    expect(amountsIn('CAŠ9.72')).toEqual([972]);
+    expect(amountsIn('CAŠ 9.72')).toEqual([972]);
+    expect(amountsIn('CAS10.66')).toEqual([1066]);
+  });
+
   it('ignores numbers that are not money', () => {
     // Quantities, phone numbers, and street numbers must not become prices.
     expect(amountsIn('2 x Coffee')).toEqual([]);
@@ -66,6 +78,12 @@ describe('total', () => {
   it('prefers an explicit grand total over a bare total', () => {
     const result = extractReceipt(ocr('TOTAL 10.00', 'AMOUNT DUE 12.50'));
     expect(result.total?.value).toBe(1250);
+  });
+
+  it('reads "amount paid" as the total, the way order tickets print it', () => {
+    const result = extractReceipt(ocr('Subtotal $47.19', 'Tax $2.36', 'Amount paid $49.55'));
+    expect(result.total?.value).toBe(4955);
+    expect(result.total?.confidence).toBeGreaterThanOrEqual(0.95);
   });
 
   it('is not fooled by tax, tip, change, or cash lines', () => {
@@ -141,6 +159,15 @@ describe('currency', () => {
     expect(extractReceipt(ocr('TOTAL $12.34')).currency).toBeUndefined();
   });
 
+  it('reads a country printed against the dollar sign as a statement', () => {
+    expect(extractReceipt(ocr('Eggcellent CA$11.86')).currency?.value).toBe('CAD');
+    expect(extractReceipt(ocr('Latte US$5.00')).currency?.value).toBe('USD');
+  });
+
+  it('leaves C$ alone, which Canada and Nicaragua both print', () => {
+    expect(extractReceipt(ocr('Latte C$4.50')).currency).toBeUndefined();
+  });
+
   it('proposes none when nothing states one and no default is given', () => {
     expect(extractReceipt(ocr('TOTAL 12.34')).currency).toBeUndefined();
   });
@@ -178,6 +205,49 @@ describe('date', () => {
     );
   });
 
+  it('reads a named month with its year, confidently', () => {
+    const result = extractReceipt(ocr('September 12, 2026 7:59 PM'));
+    const date = new Date(result.occurredAt?.value ?? 0);
+    expect([date.getFullYear(), date.getMonth(), date.getDate()]).toEqual([2026, 8, 12]);
+    expect(result.occurredAt?.confidence).toBeGreaterThan(0.8);
+  });
+
+  it('reads a named month printed after the day', () => {
+    const date = new Date(extractReceipt(ocr('12 Sep 2026')).occurredAt?.value ?? 0);
+    expect([date.getFullYear(), date.getMonth(), date.getDate()]).toEqual([2026, 8, 12]);
+  });
+
+  it('places a date printed without a year in the most recent past', () => {
+    // An order ticket, "Placed at September 12, 7:59 PM", photographed the next night.
+    const now = new Date(2026, 8, 13, 22, 45).getTime();
+    const result = extractReceipt(ocr('Placed at September 12, 7:59 PM'), { now });
+    const date = new Date(result.occurredAt?.value ?? 0);
+
+    expect([date.getFullYear(), date.getMonth(), date.getDate()]).toEqual([2026, 8, 12]);
+    // Not flagged as day/month-ambiguous, which the confirm screen does below
+    // 0.7: a named month cannot be swapped with the day.
+    expect(result.occurredAt?.confidence).toBeGreaterThanOrEqual(0.7);
+  });
+
+  it('does not date a year-less receipt in the future', () => {
+    const now = new Date(2026, 0, 3, 9).getTime();
+    const result = extractReceipt(ocr('Dec 30'), { now });
+    expect(new Date(result.occurredAt?.value ?? 0).getFullYear()).toBe(2025);
+  });
+
+  it('leaves a year-less date unread when it does not know when the photo was taken', () => {
+    expect(extractReceipt(ocr('Placed at September 12, 7:59 PM')).occurredAt).toBeUndefined();
+  });
+
+  it('does not read a time as the day of a named month', () => {
+    const now = new Date(2026, 8, 13).getTime();
+    expect(extractReceipt(ocr('Mar 7:59'), { now }).occurredAt).toBeUndefined();
+  });
+
+  it('skips a named date that does not exist', () => {
+    expect(extractReceipt(ocr('February 30, 2026')).occurredAt).toBeUndefined();
+  });
+
   it('skips an impossible date rather than inventing one', () => {
     expect(extractReceipt(ocr('99/99/2026')).occurredAt).toBeUndefined();
   });
@@ -204,6 +274,36 @@ describe('merchant', () => {
   it('does not read an amount as a merchant', () => {
     const result = extractReceipt(ocr('12.34', 'TARTINE BAKERY'));
     expect(result.merchant?.value).toBe('TARTINE BAKERY');
+  });
+
+  it('skips the customer and field lines an order ticket prints at the top', () => {
+    const result = extractReceipt(
+      ocr('New customer', 'Disposable items: No', 'Store#: 40832', 'TARTINE BAKERY'),
+    );
+    expect(result.merchant?.value).toBe('TARTINE BAKERY');
+  });
+
+  it('prefers the business that signs off at the bottom over a person at the top', () => {
+    const result = extractReceipt(
+      ocr(
+        'Alex P. 123AB',
+        'New customer',
+        '1 x Latte CA$5.00',
+        'Amount paid $5.00',
+        'Thank you for ordering from Sweet Cafe',
+      ),
+    );
+    expect(result.merchant?.value).toBe('Sweet Cafe');
+  });
+
+  it('reads a sign-off whose name wrapped onto the next line', () => {
+    const result = extractReceipt(ocr('Alex P. 123AB', 'Thank you for ordering from', 'Sweet Cafe'));
+    expect(result.merchant?.value).toBe('Sweet Cafe');
+  });
+
+  it('does not take "us" for a business', () => {
+    const result = extractReceipt(ocr('BLUE BOTTLE COFFEE', 'Thank you for shopping with us!'));
+    expect(result.merchant?.value).toBe('BLUE BOTTLE COFFEE');
   });
 
   it('only looks near the top, where the name is printed', () => {
