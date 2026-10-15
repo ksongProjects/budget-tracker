@@ -1,19 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import {
-  AccountRepository,
-  CategoryRepository,
-  LineItemRepository,
-  MerchantRepository,
-  ProfileRepository,
-  TransactionRepository,
-  migrate,
-  systemClock,
-} from '@budget/db';
-import type { RepositoryContext, SqliteDriver } from '@budget/db';
-import type { DeviceId } from '@budget/schema';
+import { migrate } from '@budget/db';
 import { createExpoDriver } from './driver';
 import { loadDeviceId } from './device-id';
+import { buildLedger } from './ledger';
+import type { Ledger } from './ledger';
+
+export type { Ledger } from './ledger';
 
 /**
  * Opens the local database, runs migrations, and hands the repositories to the
@@ -21,17 +14,6 @@ import { loadDeviceId } from './device-id';
  * fresh install lands on an empty ledger, which is the intended behaviour, not
  * an error state.
  */
-
-export interface Ledger extends RepositoryContext {
-  readonly transactions: TransactionRepository;
-  readonly lineItems: LineItemRepository;
-  readonly categories: CategoryRepository;
-  readonly accounts: AccountRepository;
-  readonly merchants: MerchantRepository;
-  readonly profile: ProfileRepository;
-  readonly driver: SqliteDriver;
-  readonly deviceId: DeviceId;
-}
 
 type LedgerState =
   | { readonly status: 'opening' }
@@ -77,19 +59,7 @@ export function LedgerProvider({ children }: { children: ReactNode }): ReactNode
           return;
         }
 
-        const ctx: RepositoryContext = { driver, deviceId, clock: systemClock };
-        setState({
-          status: 'ready',
-          ledger: {
-            ...ctx,
-            transactions: new TransactionRepository(ctx),
-            lineItems: new LineItemRepository(ctx),
-            categories: new CategoryRepository(ctx),
-            accounts: new AccountRepository(ctx),
-            merchants: new MerchantRepository(ctx),
-            profile: new ProfileRepository(ctx),
-          },
-        });
+        setState({ status: 'ready', ledger: buildLedger(driver, deviceId) });
       } catch (error) {
         if (!cancelled) {
           setState({

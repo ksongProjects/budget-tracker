@@ -27,7 +27,9 @@ import {
 import type { StructuringEngine } from '@budget/extract';
 import { CurrencySchema, formatAmount } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
-import { createExpoDriver } from '../src/db/driver';
+import { createExpoDriver, deleteExpoDatabase, expoScratchStorage } from '../src/db/driver';
+import { FAILURE_CHECK_DATABASE, openScratchLedger, seed } from '../src/lib/scratch-ledger';
+import type { ScratchDatabase } from '../src/lib/scratch-ledger';
 import { useLedger } from '../src/db/provider';
 import {
   isAutoBackupRegistered,
@@ -274,25 +276,35 @@ export default function DiagnosticsScreen(): ReactNode {
    * forever, and whether a backup from a newer version of the app is refused
    * rather than merged into a schema that cannot hold it.
    *
-   * Each of these is a real user's worst day. Nothing here is destructive: the
-   * restores are all expected to fail, and the row count is checked before and
-   * after to prove they did nothing.
+   * Each of these is a real user's worst day. The restores are all expected to
+   * fail, and they are aimed at a scratch ledger rather than the user's: a
+   * check that does its job leaves either untouched, but a check exists for the
+   * day the code under it does not. The scratch ledger holds a few rows so that
+   * "untouched" is a count that could have changed.
+   *
+   * None of the archives carries a real database, so even a restore that wrongly
+   * opened one would fail reading it, before it reached the device's keys.
    */
   const runFailures = async (): Promise<void> => {
     setFailRunning(true);
     setFailLines([]);
 
     const lines: string[] = [];
-    const count = async (): Promise<number> =>
-      (await ledger.driver.get<{ n: number }>('SELECT COUNT(*) AS n FROM transactions'))?.n ?? 0;
+    let scratch: ScratchDatabase | undefined;
 
     try {
+      scratch = await openScratchLedger(FAILURE_CHECK_DATABASE, expoScratchStorage);
+      const target = scratch.ledger;
+      await seed(target, 25);
+      const count = async (): Promise<number> =>
+        (await target.driver.get<{ n: number }>('SELECT COUNT(*) AS n FROM transactions'))?.n ?? 0;
+
       const sodium = await createNativeSodiumBackend();
       const salt = generateSalt(sodium);
       const kek = deriveKek(sodium, 'a real password', salt);
       const recoveryKey = generateRecoveryKey(sodium);
       const before = await count();
-      lines.push(`ledger holds ${String(before)} transactions`);
+      lines.push(`scratch ledger holds ${String(before)} transactions`);
 
       // Big enough that the encrypted body is most of the file: with a
       // four-byte payload the header is nearly the whole archive, and a byte
@@ -320,19 +332,19 @@ export default function DiagnosticsScreen(): ReactNode {
       const inBody = flipped.length - 200;
       flipped[inBody] = (flipped[inBody] ?? 0) ^ 0xff;
 
-      lines.push(await refuses('flipped bit in the body', () => restoreBackup(ledger, flipped, kek, sodium)));
+      lines.push(await refuses('flipped bit in the body', () => restoreBackup(target, flipped, kek, sodium)));
 
       // 2. A damaged header, which fails earlier and differently — before any
       // key is derived, so the message must still be one a person can act on.
       const damagedHeader = Uint8Array.from(good.bytes);
       damagedHeader[60] = (damagedHeader[60] ?? 0) ^ 0xff;
 
-      lines.push(await refuses('damaged header', () => restoreBackup(ledger, damagedHeader, kek, sodium)));
+      lines.push(await refuses('damaged header', () => restoreBackup(target, damagedHeader, kek, sodium)));
 
       // 3. Truncation: the write that stopped halfway and was renamed anyway.
       lines.push(
         await refuses('truncated archive', () =>
-          restoreBackup(ledger, good.bytes.slice(0, good.bytes.length - 500), kek, sodium),
+          restoreBackup(target, good.bytes.slice(0, good.bytes.length - 500), kek, sodium),
         ),
       );
 
@@ -351,11 +363,11 @@ export default function DiagnosticsScreen(): ReactNode {
         },
       );
 
-      lines.push(await refuses('downgrade', () => restoreBackup(ledger, newer.bytes, kek, sodium)));
+      lines.push(await refuses('downgrade', () => restoreBackup(target, newer.bytes, kek, sodium)));
 
       // 5. The wrong password, which is the one a user hits by accident.
       const wrong = deriveKek(sodium, 'not the password', salt);
-      lines.push(await refuses('wrong password', () => restoreBackup(ledger, good.bytes, wrong, sodium)));
+      lines.push(await refuses('wrong password', () => restoreBackup(target, good.bytes, wrong, sodium)));
 
       const after = await count();
       lines.push(
@@ -377,6 +389,12 @@ export default function DiagnosticsScreen(): ReactNode {
       );
     } catch (cause) {
       lines.push(`✗ failed: ${cause instanceof Error ? cause.message : JSON.stringify(cause)}`);
+    }
+
+    try {
+      await scratch?.discard();
+    } catch (cause) {
+      lines.push(`✗ scratch database left behind: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
 
     setFailLines(lines);
@@ -780,6 +798,8 @@ export default function DiagnosticsScreen(): ReactNode {
         });
       } finally {
         await driver.close();
+        // Each run used to leave its scratch files behind, one per case.
+        await deleteExpoDatabase(name);
       }
       setResults([...collected]);
     }
