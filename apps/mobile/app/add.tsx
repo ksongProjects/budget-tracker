@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
-import { CurrencySchema, now, uuidv7 } from '@budget/schema';
-import type { Category, CategoryId, MinorUnits } from '@budget/schema';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { now, sumAmounts } from '@budget/schema';
+import type { CategoryId } from '@budget/schema';
+import { createCapture } from '@budget/db';
 import { useLedger, useQuery } from '../src/db/provider';
 import { useDefaultCurrency } from '../src/profile/context';
+import { readHandoff } from '../src/lib/handoff';
+import type { HandoffParams } from '../src/lib/handoff';
+import { fromDay, toDay } from '../src/lib/day';
 import {
   clearAmount,
   displayAmount,
@@ -18,43 +22,45 @@ import {
 } from '../src/lib/amount-entry';
 import {
   AmountHeader,
-  Chip,
   FormError,
   Keypad,
   PrimaryButton,
-  ScrollingChipRow,
   TextField,
 } from '../src/ui/form';
+import { CategoryPicker, ItemList } from '../src/ui/record-items';
 import { colors, spacing } from '../src/ui/theme';
 
 /**
  * Amount first: the keypad is the screen. Everything else is optional, because
  * the thing that must not be lost is the number, and asking for a category
  * before an amount is how a capture gets abandoned halfway.
+ *
+ * Still a whole record: who was paid and when sit under the amount, filled in
+ * already when a recording said them, so a typed spend and a spoken one land
+ * in the ledger with the same four things — date, merchant, items, total.
  */
 export default function AddScreen(): ReactNode {
   const ledger = useLedger();
   const router = useRouter();
 
-  // Voice hands the amount over as minor units rather than as text, so the
-  // keypad starts in the same state it would have reached by being typed —
-  // editable, backspaceable, and not a string to be re-parsed.
   // The currency the user chose to record in, rather than a constant: someone
   // who set up the app in euros should not have to change it on every spend.
   const DEFAULT_CURRENCY = useDefaultCurrency();
 
-  const spoken = useLocalSearchParams<{ amountMinor?: string; currency?: string; note?: string }>();
-  const spokenCurrency =
-    spoken.currency === undefined
-      ? DEFAULT_CURRENCY
-      : (CurrencySchema.safeParse(spoken.currency).data ?? DEFAULT_CURRENCY);
+  // Voice hands the amount over as minor units rather than as text, so the
+  // keypad starts in the same state it would have reached by being typed —
+  // editable, backspaceable, and not a string to be re-parsed.
+  const handed = readHandoff(useLocalSearchParams<HandoffParams>());
+  const source = handed.source ?? 'manual';
 
   const [amount, setAmount] = useState(() =>
-    spoken.amountMinor === undefined
-      ? emptyAmount(DEFAULT_CURRENCY)
-      : fromMinorUnits(Number(spoken.amountMinor) as MinorUnits, spokenCurrency),
+    handed.amountMinor === undefined
+      ? emptyAmount(handed.currency ?? DEFAULT_CURRENCY)
+      : fromMinorUnits(handed.amountMinor, handed.currency ?? DEFAULT_CURRENCY),
   );
-  const [note, setNote] = useState(spoken.note ?? '');
+  const [merchant, setMerchant] = useState(handed.merchant ?? '');
+  const [day, setDay] = useState(() => toDay(handed.date ?? now()));
+  const [note, setNote] = useState(handed.note ?? '');
   const [categoryId, setCategoryId] = useState<CategoryId | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,39 +71,39 @@ export default function AddScreen(): ReactNode {
     const minor = toMinorUnits(amount);
     if (minor === null || saving) return;
 
+    // The time of day comes from what was said, or from now: a typed spend is
+    // usually being recorded the moment it happened.
+    const date = fromDay(day, handed.date ?? now());
+    if (date === null) {
+      setError(`${day} is not a date. Use YYYY-MM-DD.`);
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
     try {
-      const captureId = uuidv7();
-      const at = now();
+      await ledger.driver.transaction(async () => {
+        // A recording minted its capture when it was read, so this record
+        // points at the same one its extraction does. A typed spend mints its
+        // own: provenance is per CONTEXT.md, and a transaction with no capture
+        // would be invisible to Merge's identity matching later.
+        const captureId = handed.captureId ?? (await createCapture(ledger, source));
 
-      // Manual entry still records a Capture: provenance is per CONTEXT.md, and
-      // a transaction with no capture would be invisible to Merge's identity
-      // matching later.
-      await ledger.driver.run(
-        `INSERT INTO captures (capture_id, kind, captured_at, rev, updated_at, origin_device)
-         VALUES (?, 'manual', ?, 1, ?, ?)`,
-        [captureId, at, at, ledger.deviceId],
-      );
-
-      await ledger.transactions.create({
-        captureId: captureId as never,
-        accountId: null,
-        merchantId: null,
-        categoryId,
-        amountMinor: minor,
-        currency: amount.currency,
-        occurredAt: at,
-        postedAt: null,
-        note: note.trim() === '' ? null : note.trim(),
-        source: 'manual',
-        // Typed by hand, so there is nothing to confirm: the user is the source.
-        confirmedAt: at,
-        fxOriginalMinor: null,
-        fxOriginalCurrency: null,
-        fxRate: null,
-        reconciled: false,
+        await ledger.records.writeWithin({
+          captureId,
+          source,
+          date,
+          merchant,
+          items: handed.items ?? [],
+          amountMinor: minor,
+          currency: amount.currency,
+          categoryId,
+          note,
+          // Typed or checked here, so there is nothing left to confirm: the
+          // user is the source.
+          confirmed: true,
+        });
       });
 
       // Back to the ledger, not one screen back: arriving from "Say it" would
@@ -112,7 +118,7 @@ export default function AddScreen(): ReactNode {
   };
 
   return (
-    <View style={styles.screen}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <AmountHeader
         amount={displayAmount(amount)}
         currency={amount.currency}
@@ -123,7 +129,31 @@ export default function AddScreen(): ReactNode {
         }}
       />
 
-      <TextField label="What was it?" value={note} onChangeText={setNote} placeholder="Optional" />
+      <TextField
+        label="Merchant"
+        value={merchant}
+        onChangeText={setMerchant}
+        placeholder="Who was paid? Optional"
+      />
+
+      <TextField
+        label="When"
+        value={day}
+        onChangeText={setDay}
+        placeholder="YYYY-MM-DD"
+        keyboardType="numbers-and-punctuation"
+      />
+
+      {handed.items !== undefined && handed.items.length > 0 ? (
+        <ItemList
+          items={handed.items}
+          currency={amount.currency}
+          total={toMinorUnits(amount) ?? sumAmounts(handed.items.map((item) => item.totalMinor))}
+          title="What you said you bought"
+        />
+      ) : (
+        <TextField label="What was it?" value={note} onChangeText={setNote} placeholder="Optional" />
+      )}
 
       <CategoryPicker
         categories={categories ?? []}
@@ -150,39 +180,14 @@ export default function AddScreen(): ReactNode {
           onPress={() => void save()}
         />
       </View>
-    </View>
-  );
-}
-
-function CategoryPicker({
-  categories,
-  selected,
-  onSelect,
-}: {
-  categories: readonly Category[];
-  selected: CategoryId | null;
-  onSelect: (id: CategoryId | null) => void;
-}): ReactNode {
-  if (categories.length === 0) return null;
-
-  return (
-    <ScrollingChipRow>
-      {categories.map((category) => (
-        <Chip
-          key={category.id}
-          label={category.name}
-          selected={category.id === selected}
-          onPress={() => {
-            onSelect(category.id === selected ? null : category.id);
-          }}
-        />
-      ))}
-    </ScrollingChipRow>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background, padding: spacing.md, gap: spacing.md },
+  screen: { flex: 1, backgroundColor: colors.background },
+  // flexGrow, so the dock can still sit at the bottom when the fields are few.
+  content: { flexGrow: 1, padding: spacing.md, gap: spacing.md },
   // The keypad and the one action it feeds sit together at the bottom, within
   // reach of a thumb, on every screen that has them.
   keypadDock: { marginTop: 'auto', gap: spacing.md },

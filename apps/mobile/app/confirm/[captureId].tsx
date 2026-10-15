@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { now, sumAmounts } from '@budget/schema';
-import type { CaptureId } from '@budget/schema';
+import { now } from '@budget/schema';
+import type { CaptureId, CategoryId } from '@budget/schema';
+import { confidenceOf } from '@budget/db';
 import { buildReceiptTable, extractReceipt, fillTable, renderTable } from '@budget/extract';
 import type { CandidateTransaction, ReceiptTable } from '@budget/extract';
 import { assistOffer, runAssist, textToSend } from '../../src/llm/assist';
 import type { AssistOffer } from '../../src/llm/assist';
-import { useLedger } from '../../src/db/provider';
+import { useLedger, useQuery } from '../../src/db/provider';
 import { useDefaultCurrency } from '../../src/profile/context';
 import { documentPath } from '../../src/capture/documents';
 import { loadOcrEngine } from '../../src/capture/ocr';
@@ -37,6 +38,7 @@ import {
   TextField,
 } from '../../src/ui/form';
 import { ReceiptTableEditor } from '../../src/ui/receipt-table';
+import { CategoryPicker } from '../../src/ui/record-items';
 import { colors, radius, spacing, text } from '../../src/ui/theme';
 
 type Status = 'reading' | 'ready' | 'no-engine';
@@ -74,6 +76,8 @@ export default function ConfirmScreen(): ReactNode {
   const [amount, setAmount] = useState(() => emptyAmount(DEFAULT_CURRENCY));
   const [merchant, setMerchant] = useState('');
   const [day, setDay] = useState(() => toDay(now()));
+  const [categoryId, setCategoryId] = useState<CategoryId | null>(null);
+  const { data: categories } = useQuery((l) => l.categories.list(), []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,6 +134,20 @@ export default function ConfirmScreen(): ReactNode {
         const proposed = extractReceipt(result, { defaultCurrency: DEFAULT_CURRENCY, now: now() });
         const built = buildReceiptTable(result);
         const currency = proposed.currency?.value ?? DEFAULT_CURRENCY;
+
+        // The audit trail: what the camera and the rules proposed, before the
+        // user touched it. Not awaited into the screen — a failure to log is
+        // not a reason to withhold the reading.
+        void ledger.extractions
+          .record({
+            captureId: captureId as CaptureId,
+            tier: 2,
+            engine: result.engine,
+            candidate: { ...proposed, rows: built.rows.length },
+            confidence: confidenceOf(proposed),
+            durationMs: result.durationMs,
+          })
+          .catch(() => undefined);
 
         const editable = toEditable(built, currency);
 
@@ -189,6 +207,17 @@ export default function ConfirmScreen(): ReactNode {
         ...(approvedText === undefined ? {} : { approvedText }),
       });
 
+      void ledger.extractions
+        .record({
+          captureId: captureId as CaptureId,
+          tier: 3,
+          engine: structured.engine,
+          candidate: { ...structured },
+          confidence: confidenceOf(structured),
+          durationMs: structured.durationMs,
+        })
+        .catch(() => undefined);
+
       const filled = fillTable(table, structured);
       setTable(filled);
       setRows(mergeEdits(toEditable(filled, amount.currency), rows));
@@ -223,35 +252,20 @@ export default function ConfirmScreen(): ReactNode {
     setError(null);
 
     try {
-      const merchantName = merchant.trim();
-      const merchantId = merchantName === '' ? null : await ledger.merchants.resolve(merchantName);
-
-      const drafts = toDrafts(rows, amount.currency);
-      const itemised = sumAmounts(drafts.map((draft) => draft.totalMinor));
-
-      const transaction = await ledger.transactions.create({
+      // One write for the record, its merchant and its breakdown: a crash
+      // between them used to leave a transaction with no items behind it.
+      await ledger.records.write({
         captureId: captureId as CaptureId,
-        accountId: null,
-        merchantId,
-        categoryId: null,
+        source: 'photo',
+        date: occurredAt,
+        merchant,
+        items: toDrafts(rows, amount.currency),
         amountMinor: minor,
         currency: amount.currency,
-        occurredAt,
-        postedAt: null,
-        note: merchantName === '' ? null : merchantName,
-        source: 'photo',
+        categoryId,
         // The user just read these numbers and agreed to them.
-        confirmedAt: now(),
-        fxOriginalMinor: null,
-        fxOriginalCurrency: null,
-        fxRate: null,
-        // Claimed only when the breakdown actually adds up to what was charged.
-        reconciled: drafts.length > 0 && itemised === minor,
+        confirmed: true,
       });
-
-      if (drafts.length > 0) {
-        await ledger.lineItems.replaceFor(transaction.id, drafts);
-      }
 
       router.dismissAll();
       router.replace('/');
@@ -315,6 +329,12 @@ export default function ConfirmScreen(): ReactNode {
               warning: `The date on this receipt is ambiguous (${candidate.occurredAt.evidence}) — day and month could be either way round. Check it before saving.`,
             }
           : {})}
+      />
+
+      <CategoryPicker
+        categories={categories ?? []}
+        selected={categoryId}
+        onSelect={setCategoryId}
       />
 
       <Disclosure

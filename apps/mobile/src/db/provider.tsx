@@ -3,9 +3,11 @@ import type { ReactNode } from 'react';
 import {
   AccountRepository,
   CategoryRepository,
+  ExtractionRepository,
   LineItemRepository,
   MerchantRepository,
   ProfileRepository,
+  RecordRepository,
   TransactionRepository,
   migrate,
   systemClock,
@@ -29,6 +31,9 @@ export interface Ledger extends RepositoryContext {
   readonly accounts: AccountRepository;
   readonly merchants: MerchantRepository;
   readonly profile: ProfileRepository;
+  /** Whole records — date, merchant, items, total — for writing and showing. */
+  readonly records: RecordRepository;
+  readonly extractions: ExtractionRepository;
   readonly driver: SqliteDriver;
   readonly deviceId: DeviceId;
 }
@@ -88,6 +93,8 @@ export function LedgerProvider({ children }: { children: ReactNode }): ReactNode
             accounts: new AccountRepository(ctx),
             merchants: new MerchantRepository(ctx),
             profile: new ProfileRepository(ctx),
+            records: new RecordRepository(ctx),
+            extractions: new ExtractionRepository(ctx),
           },
         });
       } catch (error) {
