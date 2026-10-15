@@ -1,7 +1,8 @@
-import { uuidv7 } from '@budget/schema';
-import type { Currency, MinorUnits, Timestamp } from '@budget/schema';
+import type { AccountId, Currency, ExtractionTier, MinorUnits, Timestamp } from '@budget/schema';
 import { TransactionRepository } from './transactions.js';
 import type { RepositoryContext } from './context.js';
+import { ExtractionRepository } from './extractions.js';
+import { RecordRepository, createCapture } from './records.js';
 import { findDuplicates, readRows } from '@budget/extract';
 import type {
   ColumnMapping,
@@ -27,8 +28,9 @@ import type {
  * question.
  *
  * Imported rows arrive **unconfirmed**. They are candidate data however
- * structured the file was: the bank's description is not a merchant, and
- * nothing counts toward a total before the user accepts it (CONTEXT.md).
+ * structured the file was: the merchant is read from the bank's description,
+ * which is a guess, and nothing counts toward a total before the user accepts
+ * it (CONTEXT.md).
  */
 
 export interface ImportSettings {
@@ -91,8 +93,11 @@ async function neighbours(
     amount_minor: number;
     description: string | null;
   }>(
+    // An imported row's note is the bank's own wording, which is what the next
+    // import of the same file will say; its merchant is a cleaned-up guess.
     `SELECT t.id, t.occurred_at, t.amount_minor,
-            COALESCE(m.canonical_name, t.note) AS description
+            CASE WHEN t.source = 'statement' AND t.note IS NOT NULL THEN t.note
+                 ELSE COALESCE(m.canonical_name, t.note) END AS description
      FROM transactions t
      LEFT JOIN merchants m ON m.id = t.merchant_id
      WHERE t.deleted_at IS NULL AND t.occurred_at BETWEEN ? AND ?`,
@@ -112,6 +117,17 @@ export interface ImportResult {
   readonly imported: number;
 }
 
+/** Where the rows came from, for the record every capture carries. */
+export interface ImportSource {
+  /** The account the statement belongs to, when the user said. */
+  readonly accountId?: AccountId | null;
+  /** `csv` for a file read directly (Tier 0), the PDF engine's name for Tier 1. */
+  readonly engine?: string;
+  readonly tier?: ExtractionTier;
+  /** How long reading the file took, for the extraction record. */
+  readonly durationMs?: number;
+}
+
 /**
  * Write the rows the user accepted.
  *
@@ -119,47 +135,50 @@ export interface ImportResult {
  * "where did this come from?" has an answer months later — and so a mistaken
  * import is one identifiable set of rows rather than a scattering.
  *
+ * Each row is its own record, dated the day the bank says it was spent. The
+ * bank's description is resolved to a merchant — "SQ *BLUE BOTTLE 0412" is
+ * exactly what merchant normalization exists for — and kept verbatim as the
+ * note, so nothing the file said is lost to the cleaning.
+ *
  * The whole thing is one transaction: a half-imported statement is worse than a
  * failed one, because the second half looks like rows the bank never sent.
  */
 export async function commitImport(
   ctx: RepositoryContext,
   rows: readonly StatementRow[],
+  source: ImportSource = {},
 ): Promise<ImportResult> {
-  const transactions = new TransactionRepository(ctx);
-  const captureId = uuidv7();
+  const records = new RecordRepository(ctx);
+  const extractions = new ExtractionRepository(ctx);
 
-  await ctx.driver.transaction(async () => {
-    const now = ctx.clock();
+  const captureId = await ctx.driver.transaction(async () => {
+    const id = await createCapture(ctx, 'statement');
 
-    await ctx.driver.run(
-      `INSERT INTO captures (capture_id, kind, captured_at, rev, updated_at, origin_device)
-       VALUES (?, 'statement', ?, 1, ?, ?)`,
-      [captureId, now, now, ctx.deviceId],
-    );
+    await extractions.record({
+      captureId: id,
+      tier: source.tier ?? 0,
+      engine: source.engine ?? 'csv',
+      candidate: { rows: rows.length },
+      durationMs: source.durationMs ?? 0,
+    });
 
     for (const row of rows) {
-      await transactions.create({
-        captureId: captureId as never,
-        accountId: null,
-        merchantId: null,
-        categoryId: null,
+      await records.writeWithin({
+        captureId: id,
+        source: 'statement',
+        date: row.occurredAt as Timestamp,
+        merchant: row.description,
         amountMinor: row.amountMinor,
         currency: row.currency,
-        occurredAt: row.occurredAt as Timestamp,
-        postedAt: null,
-        // The bank's description is the only thing known about the counterparty
-        // until someone confirms it. It is a note, not a merchant.
+        accountId: source.accountId ?? null,
         note: row.description,
-        source: 'statement',
+        postedAt: (row.postedAt ?? null) as Timestamp | null,
         // Unconfirmed: structured input is still candidate data.
-        confirmedAt: null,
-        fxOriginalMinor: null,
-        fxOriginalCurrency: null,
-        fxRate: null,
-        reconciled: false,
+        confirmed: false,
       });
     }
+
+    return id;
   });
 
   return { captureId, imported: rows.length };

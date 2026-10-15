@@ -107,6 +107,11 @@ export interface ColumnMapping {
   readonly credit?: number;
   /** Present when the file states a currency per row. */
   readonly currency?: number;
+  /**
+   * When the bank posted the row, for files that give it beside the date it
+   * was spent. Optional and secondary: `date` is always the spend.
+   */
+  readonly posted?: number;
 }
 
 export interface MappingGuess extends Partial<ColumnMapping> {
@@ -119,6 +124,8 @@ const AMOUNT_NAMES = ['amount', 'value', 'debit', 'withdrawal', 'money out'];
 const CREDIT_NAMES = ['credit', 'deposit', 'money in'];
 const DESCRIPTION_NAMES = ['description', 'details', 'memo', 'narrative', 'payee', 'merchant', 'name'];
 const CURRENCY_NAMES = ['currency', 'ccy'];
+// No bare "posted": the contained-word fallback would take "Posted Amount".
+const POSTED_NAMES = ['posted date', 'posting date', 'post date'];
 
 /**
  * A first guess at the mapping, from the header row.
@@ -153,6 +160,9 @@ export function guessMapping(header: readonly string[]): MappingGuess {
   };
 
   const date = find(DATE_NAMES);
+  // After the date, so a file with only "Posted Date" uses it as the date —
+  // the one column that must be there — and a file with both keeps them apart.
+  const posted = find(POSTED_NAMES);
   const amount = find(AMOUNT_NAMES);
   const credit = find(CREDIT_NAMES);
   const description = find(DESCRIPTION_NAMES);
@@ -164,6 +174,7 @@ export function guessMapping(header: readonly string[]): MappingGuess {
     ...(credit === undefined ? {} : { credit }),
     ...(description === undefined ? {} : { description }),
     ...(currency === undefined ? {} : { currency }),
+    ...(posted === undefined ? {} : { posted }),
     unmatched: header.filter((_, index) => !taken.has(index)),
   };
 }

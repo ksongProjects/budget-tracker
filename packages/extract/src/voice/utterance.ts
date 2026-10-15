@@ -343,3 +343,252 @@ function findDay(
 function clean(word: string): string {
   return word.replace(/^[^\w$£€¥]+|[^\w]+$/g, '');
 }
+
+/** One thing bought, as it was said. */
+export interface SpokenItem {
+  /** What was bought, or the merchant when the sentence did not say. */
+  readonly name: string;
+  readonly amount: NonNullable<CandidateTransaction['total']>;
+}
+
+/**
+ * One record out of a recording: everything said about one merchant.
+ *
+ * `total` is the sum of the items, because a speaker naming three prices has
+ * not named a fourth; the user sees both before saving and can change either.
+ */
+export interface SpokenRecord {
+  readonly merchant?: NonNullable<CandidateTransaction['merchant']>;
+  readonly occurredAt?: NonNullable<CandidateTransaction['occurredAt']>;
+  readonly currency: NonNullable<CandidateTransaction['currency']>;
+  readonly items: readonly SpokenItem[];
+  readonly total: MinorUnits;
+  /** The words this record was read from. */
+  readonly said: string;
+}
+
+/**
+ * Words a sentence is joined with. Kept as separators rather than dropped, so a
+ * split that turns out to be wrong can be undone without losing the text —
+ * "Barnes and Noble" has to come back as it was said.
+ */
+const JOINS = /(\s*(?:,|;|\.(?=\s|$)|\band then\b|\bthen\b|\bplus\b|\balso\b|\band\b)\s*)/i;
+
+/** Words that carry no item: how people talk around the thing they bought. */
+const FILLER = new Set([
+  'i',
+  'we',
+  'spent',
+  'spend',
+  'paid',
+  'pay',
+  'bought',
+  'got',
+  'had',
+  'grabbed',
+  'and',
+  'then',
+  'also',
+  'plus',
+  'a',
+  'an',
+  'the',
+  'some',
+  'just',
+  'about',
+  'around',
+  'like',
+  'um',
+  'uh',
+  'so',
+  'on',
+  'for',
+  'last',
+  'this',
+  'it',
+  'was',
+]);
+
+type Merchant = NonNullable<CandidateTransaction['merchant']>;
+type Day = NonNullable<CandidateTransaction['occurredAt']>;
+type CurrencyCandidate = NonNullable<CandidateTransaction['currency']>;
+
+/**
+ * "Coffee 4.50 and a muffin 3 at Blue Bottle, and 40 on gas at Shell" — as the
+ * records it describes.
+ *
+ * The sentence is cut where it joins two clauses that *each* name an amount;
+ * a join with an amount on only one side is part of a name or a description
+ * ("fish and chips", "Barnes and Noble") and stays whole. Each clause is then
+ * read with the same rules as a single spend.
+ *
+ * Clauses are grouped by merchant. One with no merchant belongs to the next
+ * merchant named — people say what they bought before where — or, at the end
+ * of the sentence, to the last one. A sentence that names no merchant at all is
+ * one record. A day said anywhere applies to every record that does not name
+ * its own, because "yesterday" at the front of a list is about the whole list.
+ */
+export function parseSpokenRecords(
+  transcript: string,
+  options: UtteranceOptions = {},
+): SpokenRecord[] {
+  const text = transcript.trim();
+  if (text === '') return [];
+
+  const now = options.now ?? Date.now();
+  const clauses = splitClauses(text).map((said) => ({
+    said,
+    found: findAmount(said, options.defaultCurrency),
+    merchant: findMerchant(said),
+    day: findDay(said, now),
+  }));
+
+  if (!clauses.some((clause) => clause.found !== undefined)) return [];
+
+  // Who each clause was paid to: its own merchant, else the next one named,
+  // else the last one before it.
+  const merchants = clauses.map(
+    (clause, index): Merchant | undefined =>
+      clause.merchant ??
+      clauses.slice(index + 1).find((later) => later.merchant)?.merchant ??
+      clauses
+        .slice(0, index)
+        .reverse()
+        .find((earlier) => earlier.merchant)?.merchant,
+  );
+
+  const anyDay = clauses.find((clause) => clause.day)?.day;
+
+  interface Group {
+    merchant?: Merchant;
+    day?: Day;
+    currency?: CurrencyCandidate;
+    items: SpokenItem[];
+    said: string[];
+  }
+
+  const groups = new Map<string, Group>();
+
+  for (const [index, clause] of clauses.entries()) {
+    const merchant = merchants[index];
+    const key = merchant === undefined ? '' : merchant.value.toLowerCase();
+
+    let group = groups.get(key);
+    if (!group) {
+      group = { ...(merchant === undefined ? {} : { merchant }), items: [], said: [] };
+      groups.set(key, group);
+    }
+
+    // A clause with no price still says something — the merchant, the day —
+    // and its words belong with the record it describes.
+    group.said.push(clause.said);
+    if (group.day === undefined && clause.day !== undefined) group.day = clause.day;
+    if (clause.found === undefined) continue;
+
+    group.items.push({
+      name:
+        findItem(clause.said, clause.found.total.evidence, clause.merchant?.evidence) ??
+        merchant?.value ??
+        'Spend',
+      amount: clause.found.total,
+    });
+
+    // A currency someone actually named beats one an earlier clause assumed.
+    if (group.currency === undefined || group.currency.evidence === 'assumed') {
+      group.currency = clause.found.currency;
+    }
+  }
+
+  const records: SpokenRecord[] = [];
+  for (const group of groups.values()) {
+    if (group.currency === undefined || group.items.length === 0) continue;
+
+    const occurredAt = group.day ?? anyDay;
+    records.push({
+      ...(group.merchant === undefined ? {} : { merchant: group.merchant }),
+      ...(occurredAt === undefined ? {} : { occurredAt }),
+      currency: group.currency,
+      items: group.items,
+      total: group.items.reduce((sum, item) => sum + item.amount.value, 0) as MinorUnits,
+      said: group.said.join(', '),
+    });
+  }
+
+  return records;
+}
+
+/** Cut at joins with an amount on both sides; glue everything else back. */
+function splitClauses(text: string): string[] {
+  const parts = text.split(JOINS);
+  const clauses: string[] = [];
+  let current = parts[0] ?? '';
+
+  for (let index = 1; index < parts.length; index += 2) {
+    const join = parts[index] ?? '';
+    const next = parts[index + 1] ?? '';
+
+    if (next.trim() !== '' && hasAmount(current) && hasAmount(next)) {
+      clauses.push(current);
+      current = next;
+    } else {
+      current += join + next;
+    }
+  }
+
+  clauses.push(current);
+  return clauses
+    .map((clause) => clause.trim().replace(/[\s,;.]+$/, ''))
+    .filter((clause) => clause !== '');
+}
+
+function hasAmount(text: string): boolean {
+  return findAmount(text, undefined) !== undefined;
+}
+
+/**
+ * What was bought: "coffee" from "twelve bucks on coffee at Blue Bottle".
+ *
+ * The amount and the place are taken out first, then whatever follows "on" or
+ * "for" — or, without one, whatever is left that is not filler, a number or a
+ * day. Undefined when nothing is left, so the caller can say so honestly.
+ */
+function findItem(
+  clause: string,
+  amountEvidence: string,
+  merchantEvidence: string | undefined,
+): string | undefined {
+  let rest = removeOnce(clause, amountEvidence);
+  if (merchantEvidence !== undefined) rest = removeOnce(rest, merchantEvidence);
+
+  const words = rest
+    .split(/\s+/)
+    .map(clean)
+    .filter((word) => word !== '');
+
+  const marker = words.findIndex((word) => ITEM_MARKERS.includes(word.toLowerCase()));
+  const from = marker === -1 ? words : words.slice(marker + 1);
+
+  const kept: string[] = [];
+  for (const word of from) {
+    const bare = word.toLowerCase();
+    if (PLACE_MARKERS.includes(bare)) break;
+    if (/^[\d$£€¥]/.test(bare)) continue;
+    if (UNITS[bare] !== undefined || TENS[bare] !== undefined) continue;
+    if (CURRENCY_WORDS[bare] !== undefined) continue;
+    if (RELATIVE_DAYS[bare] !== undefined || WEEKDAYS.includes(bare)) continue;
+    kept.push(word);
+  }
+
+  // Filler only comes off the ends: "a muffin" is a muffin, but "fish and
+  // chips" keeps its "and".
+  while (kept.length > 0 && FILLER.has((kept[0] ?? '').toLowerCase())) kept.shift();
+  while (kept.length > 0 && FILLER.has((kept.at(-1) ?? '').toLowerCase())) kept.pop();
+
+  const name = kept.join(' ').trim();
+  return name === '' ? undefined : name;
+}
+
+function removeOnce(text: string, part: string): string {
+  const at = text.toLowerCase().indexOf(part.toLowerCase());
+  return at === -1 ? text : `${text.slice(0, at)} ${text.slice(at + part.length)}`;
+}

@@ -110,6 +110,17 @@ export class MerchantRepository {
    * occurrence resolves by exact lookup rather than by guessing again.
    */
   async resolve(rawName: string): Promise<MerchantId> {
+    // One transaction: a merchant without its alias would never be found again,
+    // and the next resolve would create a duplicate.
+    return this.ctx.driver.transaction(() => this.resolveWithin(rawName));
+  }
+
+  /**
+   * `resolve` for a caller already inside a transaction — writing a record, or
+   * importing a statement — since the driver refuses to nest one. The caller's
+   * transaction is what keeps the merchant and its alias together.
+   */
+  async resolveWithin(rawName: string): Promise<MerchantId> {
     const key = normalizeMerchantName(rawName);
     if (key === '') {
       throw new Error(`merchant name is empty after normalization: ${JSON.stringify(rawName)}`);
@@ -126,20 +137,16 @@ export class MerchantRepository {
     const id = uuidv7() as MerchantId;
     const now = this.ctx.clock();
 
-    // One transaction: a merchant without its alias would never be found again,
-    // and the next resolve would create a duplicate.
-    await this.ctx.driver.transaction(async () => {
-      await this.ctx.driver.run(
-        `INSERT INTO merchants (id, canonical_name, rev, updated_at, origin_device)
-         VALUES (?, ?, 1, ?, ?)`,
-        [id, displayMerchantName(rawName), now, this.ctx.deviceId],
-      );
-      await this.ctx.driver.run(
-        `INSERT INTO merchant_aliases (alias, merchant_id, rev, updated_at, origin_device)
-         VALUES (?, ?, 1, ?, ?)`,
-        [key, id, now, this.ctx.deviceId],
-      );
-    });
+    await this.ctx.driver.run(
+      `INSERT INTO merchants (id, canonical_name, rev, updated_at, origin_device)
+       VALUES (?, ?, 1, ?, ?)`,
+      [id, displayMerchantName(rawName), now, this.ctx.deviceId],
+    );
+    await this.ctx.driver.run(
+      `INSERT INTO merchant_aliases (alias, merchant_id, rev, updated_at, origin_device)
+       VALUES (?, ?, 1, ?, ?)`,
+      [key, id, now, this.ctx.deviceId],
+    );
 
     return id;
   }
