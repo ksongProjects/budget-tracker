@@ -100,7 +100,11 @@ export default function AddScreen(): ReactNode {
         reconciled: false,
       });
 
-      router.back();
+      // Back to the ledger, not one screen back: arriving from "Say it" would
+      // otherwise land on the voice screen, still showing the reading that was
+      // just saved, with no sign that it had been.
+      router.dismissAll();
+      router.replace('/');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setSaving(false);
