@@ -7,7 +7,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "postinstall": "node scripts/vendor-pdfjs.mjs"
   },
   "dependencies": {
     "@budget/backup": "workspace:*",
@@ -44,6 +45,7 @@
     "expo-task-manager": "~57.0.14",
     "expo-web-browser": "~57.0.2",
     "lucide-react-native": "^1.37.0",
+    "pdfjs-dist": "^6.3.289",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -53,6 +55,7 @@
     "react-native-screens": "~4.26.2",
     "react-native-svg": "^15.15.5",
     "react-native-web": "^0.21.2",
+    "react-native-webview": "13.16.1",
     "whisper.rn": "^0.7.4"
   },
   "devDependencies": {

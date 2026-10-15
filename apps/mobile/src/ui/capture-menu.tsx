@@ -31,7 +31,7 @@ export function CaptureMenu(): ReactNode {
     { label: 'Type it', href: '/add', icon: <Keyboard {...decorative()} /> },
     { label: 'Photograph a receipt', href: '/capture', icon: <Camera {...decorative()} /> },
     { label: 'Say it', href: '/voice', icon: <Mic {...decorative()} /> },
-    { label: 'Import a statement', href: '/import', icon: <FileText {...decorative()} /> },
+    { label: 'Upload a file', href: '/import', icon: <FileText {...decorative()} /> },
   ];
 
   return (

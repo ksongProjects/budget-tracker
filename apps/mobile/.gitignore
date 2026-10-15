@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# pdf.js, copied in on install (scripts/vendor-pdfjs.mjs)
+assets/pdfjs/
