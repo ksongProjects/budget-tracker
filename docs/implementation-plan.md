@@ -186,6 +186,12 @@ Perf audit against all budgets · failure-injection on backup/restore (kill mid-
 corrupt archive, downgrade attempt) · accessibility pass · store metadata + privacy
 labels (the easiest privacy label ever written) · beta → release.
 
+## After Phase 10
+
+Phases 11–18 — safe release builds, real-device numbers, real-receipt accuracy,
+mobile gaps, Drive, Play, iOS and web polish — are in
+[next-steps.md](next-steps.md).
+
 ---
 
 ## Blazing fast: performance budgets
