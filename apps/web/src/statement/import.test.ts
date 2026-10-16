@@ -208,7 +208,9 @@ describe('a PDF from a bank we know', () => {
     await waitFor(() => root.querySelector('#pending') !== null);
 
     await go('ledger');
-    expect(text('#ledger')).toContain('BLUE BOTTLE COFFEE');
+    // The ledger shows the merchant read from the bank's description; the
+    // description itself is kept as the note.
+    expect(text('#ledger')).toContain('Blue Bottle Coffee');
     expect(text('#ledger')).toContain('4.50 USD');
   });
 
@@ -230,7 +232,7 @@ describe('importing', () => {
     expect(text('#pending')).toContain('3 entries are waiting');
 
     await go('ledger');
-    expect(text('#ledger')).toContain('RENT MARCH');
+    expect(text('#ledger')).toContain('Rent March');
     expect(text('#ledger')).toContain('1850.00 USD');
 
     // Unconfirmed rows are shown but never counted.
