@@ -86,12 +86,28 @@ for exactly what to create.
   because real statements are personal documents and the corpus is gitignored.
   The first real file will likely need a third rule set and find something in
   the layout code.
-- **Scanned PDFs are not read.** There is no text layer in an image, and OCR for
-  PDFs is Tier 2 work this phase did not take on. The screen says so rather than
-  showing an empty table.
-- **Statement import is web-only.** The phone has no import screen; rows reach it
-  through a backup. Nothing about the parsing is web-specific, so the work is a
-  screen rather than a pipeline.
+- **Scanned PDFs are read by OCR on the phone only.** A page with no text layer
+  is drawn in the WebView, read by ML Kit and turned back into page positions
+  (`pageFromOcr`), then goes through the generic layout — never a bank's rule
+  set, whose positions were measured on generated PDFs. The web app still says
+  a scan has no text layer. Expo Go has no ML Kit, so there too. Quality follows
+  the scan: on a 200 dpi black-and-white fax test page one row of eight was
+  skipped and `*` read as `"`; a JPEG scan of the same page read perfectly. At
+  most 30 pages are drawn. pdf.js's CCITT/JBIG2 and JPEG 2000 decoders are
+  WebAssembly, handed to it from the app's assets rather than fetched.
+- **PDFs on the phone are read by pdf.js in a WebView.** The same library and the
+  same `readStatementDocument` as the web app, so the two cannot disagree about
+  a file — but it is a second runtime to keep alive: pdf.js is copied into the
+  app's assets on install (`apps/mobile/scripts/vendor-pdfjs.mjs`), and a
+  pdfjs-dist upgrade that changes its build file names breaks that copy loudly
+  rather than quietly.
+- **A merchant read from a bank description is a guess.** Normalization strips
+  the usual noise ("SQ *", store numbers), but a description like
+  "POS 4412 PURCHASE" becomes a merchant called "Pos 4412 Purchase". The raw
+  description is kept as the note, and the row stays unconfirmed until accepted.
+- **No FX on import.** `fx_original_*` stays empty everywhere: nothing on the
+  device knows a rate, and inventing one would rewrite history the column exists
+  to protect. Needs a statement format that prints the original amount.
 - **Column detection assumes a tabular layout.** A gap recurring on most lines is
   a column — right for the common case, wrong for statements that use ruled
   boxes or wrap a description across lines.
@@ -110,6 +126,12 @@ for exactly what to create.
 - **`whisper.rn` resolves only as `whisper.rn/index`.** Its export map declares
   no "." entry, so the bare specifier fails and a tsconfig path points
   TypeScript at the shipped declarations. Both revert when upstream fixes it.
+- **Several spends in one recording are split by rule, not by a model.** A
+  clause is cut off only where both sides name an amount, and grouped by the
+  merchant it names or the next one named. A model reads one spend per call, so
+  it is used only when the rules find one record. "One coffee and one tea" reads
+  "one" as an amount — the price of an item said in words collides with a
+  quantity said in words.
 - **A spoken merchant loses its branch number.** The merchant phrase stops at
   the first number, which is right when the amount follows the name — "at
   Tartine, eighteen fifty" — and wrong for "at Safeway 0421".

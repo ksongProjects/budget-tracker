@@ -16,6 +16,17 @@ export interface OcrLine {
   readonly box?: BoundingBox;
   /** Engine confidence 0–1, when reported. */
   readonly confidence?: number;
+  /**
+   * The line's words, each with its own box, when the engine reports them.
+   * Receipts read whole lines; a scanned statement needs the words, because a
+   * line across a table is several columns and only the gaps say where.
+   */
+  readonly words?: readonly OcrWord[];
+}
+
+export interface OcrWord {
+  readonly text: string;
+  readonly box: BoundingBox;
 }
 
 export interface BoundingBox {

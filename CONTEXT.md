@@ -24,6 +24,14 @@ category, account. The ledger row.
 **LineItem** — a row within a Transaction. Tax, fees, discounts, and tips are
 LineItems with a `kind`, not columns on Transaction.
 
+**Record** — a Transaction as a person reads it: a date, a merchant, its items, and a
+total (`LedgerRecord` in `packages/db/src/records.ts`). Every capture path writes one
+through the same function, and every screen that shows one reads this shape. A
+Transaction with no stored LineItems still has one item: an *implied* item for the
+whole amount, worked out on read and never written, so two devices cannot each mint
+one and have Merge keep both. One Capture can produce many Records — a statement
+gives one per row, a recording one per merchant named.
+
 **Ledger** — the full set of Transactions in the local SQLite database. The device
 is the system of record ([ADR 0011](docs/adr/0011-local-first.md)); there is no
 server copy. Each device has its own Ledger; Backups move data between them.

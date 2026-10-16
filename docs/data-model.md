@@ -64,7 +64,7 @@ The working table. This is what every screen reads.
 | Column | Type | Notes |
 |---|---|---|
 | id | TEXT PK | |
-| capture_id | TEXT FK | nullable only for rows created by CSV import |
+| capture_id | TEXT FK | every write path mints one; nullable only for rows from before it did |
 | account_id, merchant_id, category_id | TEXT FK | |
 | amount_minor | INTEGER | minor units |
 | currency | TEXT | ISO 4217 |
@@ -109,6 +109,25 @@ Tax and fees are rows with a `kind`, not columns on `transactions` — receipts 
 too much for fixed columns. The sum of items is checked against the transaction
 total and the mismatch is surfaced via `reconciled`, never silently trusted either
 way.
+
+## Records
+
+What every capture path writes and every screen shows is a **record**
+(`packages/db/src/records.ts`): the transaction, its merchant's display name, its
+items, and its total, written by one function — `RecordRepository.write` — in
+one transaction.
+
+| Source | Records per capture | Merchant | Items |
+|---|---|---|---|
+| `photo` | 1 | as read, editable | the receipt's rows |
+| `voice` | one per merchant named | as said | each thing said with a price |
+| `statement` | one per row, on the row's date | resolved from the bank description; the description itself is the note | none stored |
+| `manual` | 1 | as typed | none stored |
+
+A record with no stored line items reads back **one implied item** for its whole
+amount. Implied items are computed, never written: a migration that wrote them
+would run once per device, mint different ids for the same purchase, and Merge
+would keep both.
 
 ## merchants, categories, accounts
 

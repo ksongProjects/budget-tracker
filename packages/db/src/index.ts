@@ -18,6 +18,8 @@ export * from './tombstones.js';
 export * from './merchants.js';
 export * from './profile.js';
 export * from './statements.js';
+export * from './records.js';
+export * from './extractions.js';
 export type { Migration } from './migrations.js';
 export { MIGRATIONS } from './migrations.js';
 export * from './merge.js';

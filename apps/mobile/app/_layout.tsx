@@ -119,7 +119,7 @@ function SetupGate(): ReactNode {
       />
       <Stack.Screen name="add" options={{ title: 'New spend', presentation: 'modal' }} />
       <Stack.Screen name="profile" options={{ title: 'Profile' }} />
-      <Stack.Screen name="import" options={{ title: 'Import a statement' }} />
+      <Stack.Screen name="import" options={{ title: 'Upload a file' }} />
       <Stack.Screen name="summary" options={{ title: 'Summary' }} />
       <Stack.Screen name="transaction/[id]" options={{ title: 'Spend' }} />
       <Stack.Screen name="capture" options={{ title: 'Photograph receipt' }} />

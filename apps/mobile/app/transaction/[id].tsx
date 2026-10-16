@@ -2,18 +2,18 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { formatAmount, sumAmounts } from '@budget/schema';
-import type { Currency, LineItem, MinorUnits, TransactionId } from '@budget/schema';
+import { formatAmount } from '@budget/schema';
+import type { TransactionId } from '@budget/schema';
 import { documentPath } from '../../src/capture/documents';
 import { useLedger, useQuery } from '../../src/db/provider';
 import {
   AmountHeader,
-  Card,
   DangerButton,
   Field,
   PrimaryButton,
   TextField,
 } from '../../src/ui/form';
+import { ItemList } from '../../src/ui/record-items';
 import { colors, radius, spacing, text } from '../../src/ui/theme';
 
 /** Detail, edit, confirm, delete. Delete is soft — the row survives for Merge. */
@@ -33,14 +33,12 @@ export default function TransactionScreen(): ReactNode {
     version,
   );
 
-  // The breakdown and the photo behind this row. Both are read once the
-  // transaction is known, and both are absent for a typed spend, which is a
-  // normal state rather than an error.
-  const { data: items } = useQuery(
-    (l) => l.lineItems.listFor(id as TransactionId),
-    [id],
-    version,
-  );
+  // The record as a person reads it: who was paid and what was bought. A typed
+  // spend has no breakdown, and reads back one item standing for the whole.
+  const { data: record } = useQuery((l) => l.records.get(id as TransactionId), [id], version);
+
+  // The photo behind this row, absent for anything that was not photographed —
+  // a normal state rather than an error.
 
   const { data: photoUri } = useQuery(
     async (l) => {
@@ -126,8 +124,18 @@ export default function TransactionScreen(): ReactNode {
         </Pressable>
       )}
 
-      {items !== undefined && items.length > 0 && (
-        <Breakdown items={items} currency={transaction.currency} total={transaction.amountMinor} />
+      <Field label="Merchant">
+        <Text style={record?.merchant == null ? text.muted : text.body}>
+          {record?.merchant ?? 'Not recorded'}
+        </Text>
+      </Field>
+
+      {record !== undefined && (
+        <ItemList
+          items={record.items}
+          currency={record.total.currency}
+          total={record.total.amountMinor}
+        />
       )}
 
       {pending && (
@@ -167,53 +175,6 @@ export default function TransactionScreen(): ReactNode {
   );
 }
 
-/**
- * What was bought, as it was confirmed.
- *
- * Read-only here on purpose: the breakdown was checked against the photo on the
- * confirm screen, and a number that has been counted in a total is not a field
- * to retype in passing. What this does show is whether it still adds up, since
- * the transaction amount can be edited afterwards and the rows cannot follow it
- * on their own.
- */
-function Breakdown({
-  items,
-  currency,
-  total,
-}: {
-  items: readonly LineItem[];
-  currency: Currency;
-  total: MinorUnits;
-}): ReactNode {
-  const itemised = sumAmounts(items.map((item) => item.totalMinor));
-
-  return (
-    <Card>
-      <Text style={text.faint}>What was bought</Text>
-
-      {items.map((item) => (
-        <View key={item.id} style={styles.breakdownRow}>
-          <Text style={text.body} numberOfLines={1}>
-            {item.quantity === null ? '' : `${String(item.quantity)} × `}
-            {item.name}
-            {item.kind === 'item' ? '' : ` · ${item.kind}`}
-          </Text>
-          <Text style={[text.body, styles.figure]}>
-            {formatAmount(item.totalMinor, currency)}
-          </Text>
-        </View>
-      ))}
-
-      {itemised !== total && (
-        <Text style={styles.mismatch}>
-          These rows come to {formatAmount(itemised, currency)}, not the{' '}
-          {formatAmount(total, currency)} charged.
-        </Text>
-      )}
-    </Card>
-  );
-}
-
 function Message({ text: message }: { text: string }): ReactNode {
   return (
     <View style={styles.centered}>
@@ -238,9 +199,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   photoExpanded: { height: 520 },
-  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
-  figure: { fontVariant: ['tabular-nums'] },
-  mismatch: { color: colors.pending, fontSize: 12, marginTop: spacing.xs },
   pendingCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,

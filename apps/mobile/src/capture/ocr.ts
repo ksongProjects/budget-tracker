@@ -11,9 +11,18 @@ import type { OcrEngine, OcrResult } from '@budget/extract';
  * a complete, correct transaction. OCR only saves typing.
  */
 
+interface MlKitFrame {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 interface MlKitLine {
   readonly text: string;
-  readonly frame?: { left: number; top: number; width: number; height: number };
+  readonly frame?: MlKitFrame;
+  /** The line's words. Receipts ignore them; scanned statements need them. */
+  readonly elements?: readonly { readonly text: string; readonly frame?: MlKitFrame }[];
 }
 
 interface MlKitBlock {
@@ -53,21 +62,19 @@ function createMlKitEngine(): OcrEngine | null {
         // ML Kit groups lines into blocks; the heuristics work line by line and
         // do not care about the grouping.
         lines: result.blocks.flatMap((block) =>
-          block.lines.map((line) => ({
-            text: line.text,
-            // ML Kit reports pixel boxes as {left, top}; the rules use
-            // {x, y}. Units do not matter to them, only relative positions.
-            ...(line.frame
-              ? {
-                  box: {
-                    x: line.frame.left,
-                    y: line.frame.top,
-                    width: line.frame.width,
-                    height: line.frame.height,
-                  },
-                }
-              : {}),
-          })),
+          block.lines.map((line) => {
+            const words = (line.elements ?? []).flatMap((element) =>
+              element.frame === undefined ? [] : [{ text: element.text, box: toBox(element.frame) }],
+            );
+
+            return {
+              text: line.text,
+              // ML Kit reports pixel boxes as {left, top}; the rules use
+              // {x, y}. Units do not matter to them, only relative positions.
+              ...(line.frame ? { box: toBox(line.frame) } : {}),
+              ...(words.length === 0 ? {} : { words }),
+            };
+          }),
         ),
       };
     },
@@ -92,4 +99,8 @@ function requireMlKit(): MlKitModule | null {
   } catch {
     return null;
   }
+}
+
+function toBox(frame: MlKitFrame): { x: number; y: number; width: number; height: number } {
+  return { x: frame.left, y: frame.top, width: frame.width, height: frame.height };
 }

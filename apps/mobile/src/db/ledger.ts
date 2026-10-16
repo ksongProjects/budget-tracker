@@ -1,9 +1,11 @@
 import {
   AccountRepository,
   CategoryRepository,
+  ExtractionRepository,
   LineItemRepository,
   MerchantRepository,
   ProfileRepository,
+  RecordRepository,
   TransactionRepository,
   systemClock,
 } from '@budget/db';
@@ -25,6 +27,9 @@ export interface Ledger extends RepositoryContext {
   readonly accounts: AccountRepository;
   readonly merchants: MerchantRepository;
   readonly profile: ProfileRepository;
+  /** Whole records — date, merchant, items, total — for writing and showing. */
+  readonly records: RecordRepository;
+  readonly extractions: ExtractionRepository;
   readonly driver: SqliteDriver;
   readonly deviceId: DeviceId;
 }
@@ -39,5 +44,7 @@ export function buildLedger(driver: SqliteDriver, deviceId: DeviceId): Ledger {
     accounts: new AccountRepository(ctx),
     merchants: new MerchantRepository(ctx),
     profile: new ProfileRepository(ctx),
+    records: new RecordRepository(ctx),
+    extractions: new ExtractionRepository(ctx),
   };
 }

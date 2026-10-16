@@ -39,6 +39,8 @@ export interface StatementRow {
   readonly description: string;
   readonly amountMinor: MinorUnits;
   readonly currency: Currency;
+  /** When the bank posted it, where the file says and it can be read. */
+  readonly postedAt?: number;
 }
 
 export interface RowProblem {
@@ -103,7 +105,21 @@ export function readRows(table: CsvTable, options: RowOptions): ParsedRows {
       continue;
     }
 
-    rows.push({ line, occurredAt, description, amountMinor: amount, currency });
+    // A posting date that will not parse costs the row nothing: it is secondary
+    // to the date of the spend, and refusing the row over it would lose money.
+    const postedAt =
+      options.mapping.posted === undefined
+        ? undefined
+        : parseDate(cell(cells, options.mapping.posted), options.dateOrder);
+
+    rows.push({
+      line,
+      occurredAt,
+      description,
+      amountMinor: amount,
+      currency,
+      ...(postedAt === undefined ? {} : { postedAt }),
+    });
   }
 
   return { rows, problems };

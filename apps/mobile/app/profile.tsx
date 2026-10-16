@@ -108,8 +108,8 @@ export default function ProfileScreen(): ReactNode {
       <Row
         href="/import"
         icon={<FileText {...decorative({ color: colors.accent })} />}
-        title="Import a statement"
-        detail="A CSV from your bank"
+        title="Upload a file"
+        detail="A statement (CSV or PDF) or a receipt image"
       />
       <Row
         href="/assist"

@@ -16,4 +16,8 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, 'node_modules'),
 ];
 
+// pdf.js ships as text assets for the PDF reader's WebView, never as bundled
+// code — see scripts/vendor-pdfjs.mjs.
+config.resolver.assetExts = [...config.resolver.assetExts, 'txt'];
+
 module.exports = config;
