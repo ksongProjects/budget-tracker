@@ -11,6 +11,7 @@ export * from './table.js';
 export * from './redact.js';
 export * from './statement/csv.js';
 export * from './statement/layout.js';
+export * from './statement/scanned.js';
 export * from './statement/rows.js';
 export * from './statement/dedupe.js';
 export * from './statement/rules.js';

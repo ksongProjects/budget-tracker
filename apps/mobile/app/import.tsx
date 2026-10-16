@@ -9,6 +9,7 @@ import type { AccountId, Currency } from '@budget/schema';
 import { commitImport, previewImport } from '@budget/db';
 import type { ImportPreview, ImportSource } from '@budget/db';
 import {
+  NO_TEXT_FOUND,
   NO_TEXT_LAYER,
   guessMapping,
   isComplete,
@@ -42,7 +43,8 @@ import { colors, spacing, text } from '../src/ui/theme';
  * - A **CSV** is a statement, read directly (Tier 0).
  * - A **PDF** is a statement too, read from its text layer by pdf.js in a
  *   hidden WebView (Tier 1) — the same reader, rule sets and layout code the
- *   web app uses.
+ *   web app uses. A scanned page, with no text layer, is drawn and read by
+ *   on-device OCR instead, then goes through the same layout.
  * - An **image** is a receipt someone already has a picture of. It is stored
  *   exactly like a photo from the camera and goes to the same confirm screen,
  *   so a screenshot of an e-receipt and a photo of a paper one end up the same.
@@ -118,7 +120,9 @@ export default function UploadScreen(): ReactNode {
         const document = await pdf.read(asset.uri);
         const read = readStatementDocument(document);
         if (read === undefined) {
-          setError(NO_TEXT_LAYER);
+          // A scan that OCR found nothing in is a different problem from a
+          // scan that could not be OCR'd at all (Expo Go has no ML Kit).
+          setError((document.scannedPages ?? 0) > 0 ? NO_TEXT_FOUND : NO_TEXT_LAYER);
           return;
         }
 

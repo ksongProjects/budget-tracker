@@ -34,6 +34,12 @@ export interface PdfPage {
 export interface PdfDocument {
   readonly pages: readonly PdfPage[];
   readonly engine: string;
+  /**
+   * How many pages had no text layer and were read by OCR instead. Their
+   * positions are a camera's rather than a typesetter's, and the layout reads
+   * them with more tolerance.
+   */
+  readonly scannedPages?: number;
 }
 
 /** What a platform must provide to take part in Tier 1. */
