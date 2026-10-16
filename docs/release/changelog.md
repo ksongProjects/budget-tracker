@@ -4,7 +4,37 @@ Sideload builds for device testing, published as GitHub prereleases on
 `ksongProjects/budget-tracker`. Each one is signed with the TXNS release key, so
 it installs over the last one and keeps the ledger. Newest first.
 
+## 0.1.0 build 166dd78 — 2026-10-16
+
+Fixes for build 50c4add. Install this one instead.
+
+- **`/perf` no longer crashes.** It ran to the full-text search, then the app
+  closed as it threw away its scratch database. The cause was an expo-sqlite
+  double free on closing a connection that has used the full-text index. Your
+  ledger was not affected: the crash came after every write had gone to the
+  scratch database.
+- **`/perf` now reaches the backup timing in release builds.** The receipt
+  benchmark can't open its test image in a release build. It now says so and
+  the run carries on, instead of stopping there.
+- Two web tests updated: the ledger now shows the merchant ("Blue Bottle
+  Coffee") instead of the bank's description.
+
+Checked on the emulator with a release build of this commit:
+- added 3 records, then ran `/perf` to the end
+- the home screen still showed 3 records and no backup
+- all 6 failure checks were refused, on the scratch ledger
+- the driver contract passed 13 of 13
+
+Emulator results, 10,000 rows:
+- page query 5 ms
+- summaries 7–10 ms
+- search 7 ms
+- insert 5 ms
+- backup write 1.5 s
+
 ## 0.1.0 build 50c4add — 2026-10-15
+
+**Superseded by the build above:** `/perf` crashes in this build.
 
 Everything merged since build 64c33a5. No database migration: the ledger on the
 phone is read as it is.
