@@ -61,11 +61,15 @@ export function withBudget(measurement: Measurement): MeasurementResult {
  *
  * Median, not mean: one garbage collection pause should not decide whether a
  * budget passed, and it should not hide a slow path either.
+ *
+ * `budgetMs` is for a name that carries detail (a row count, say) and so is not
+ * itself a key in BUDGETS.
  */
 export async function measureRepeated<T>(
   name: string,
   runs: number,
   work: () => Promise<T>,
+  budgetMs?: number,
 ): Promise<MeasurementResult> {
   const timings: number[] = [];
 
@@ -82,7 +86,7 @@ export async function measureRepeated<T>(
       ? ((timings[middle - 1] ?? 0) + (timings[middle] ?? 0)) / 2
       : (timings[middle] ?? 0);
 
-  return withBudget({ name, ms: median });
+  return withBudget({ name, ms: median, ...(budgetMs === undefined ? {} : { budgetMs }) });
 }
 
 /**

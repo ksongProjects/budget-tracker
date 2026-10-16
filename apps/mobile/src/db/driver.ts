@@ -33,6 +33,30 @@ export interface ExpoDriverOptions {
   readonly ownConnection?: boolean;
 }
 
+/**
+ * Delete a database by name. Deleting one that does not exist is not an error.
+ *
+ * Anything else still is — expo-sqlite refuses to delete a database with an
+ * open connection, and a scratch file that silently stays behind is the kind of
+ * leak nobody notices until the phone is full.
+ */
+export async function deleteExpoDatabase(name: string): Promise<void> {
+  if (name === DATABASE_NAME) {
+    throw new DatabaseError(`refusing to delete the ledger (${DATABASE_NAME})`);
+  }
+  try {
+    await SQLite.deleteDatabaseAsync(name);
+  } catch (error) {
+    if (!/not found/i.test(error instanceof Error ? error.message : String(error))) throw error;
+  }
+}
+
+/** How a scratch ledger (src/lib/scratch-ledger.ts) is stored on the device. */
+export const expoScratchStorage = {
+  open: (name: string): Promise<SqliteDriver> => createExpoDriver(name, { ownConnection: true }),
+  remove: deleteExpoDatabase,
+};
+
 export async function createExpoDriver(
   name: string = DATABASE_NAME,
   options: ExpoDriverOptions = {},

@@ -1,7 +1,13 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { SCHEMA_VERSION, mergeAll } from '@budget/db';
 import type { MergeableRow, RepositoryContext } from '@budget/db';
-import { KDF_PARAMS, deriveKek } from '@budget/crypto';
+import {
+  KDF_PARAMS,
+  deriveKek,
+  generateBmk,
+  generateRecoveryKey,
+  generateSalt,
+} from '@budget/crypto';
 import type { SodiumBackend } from '@budget/crypto';
 import {
   archiveName,
@@ -14,6 +20,7 @@ import {
 import type { ArchiveEntry } from '@budget/backup';
 import { createNativeSodiumBackend } from '../crypto/backend';
 import { createExpoDriver } from '../db/driver';
+import type { ScratchLedger } from '../lib/scratch-ledger';
 import {
   adoptKeyMaterial,
   loadOrCreateKeyMaterial,
@@ -32,6 +39,7 @@ import {
  */
 
 const BACKUP_DIR = `${FileSystem.documentDirectory ?? ''}backups/`;
+const BENCHMARK_DIR = `${FileSystem.documentDirectory ?? ''}benchmark/`;
 const APP_VERSION = '0.1.0';
 
 /** How many archives to keep on the device. See `pruneBackups`. */
@@ -77,10 +85,10 @@ export interface BackupOptions {
   readonly sodium?: SodiumBackend;
 }
 
-async function ensureDir(): Promise<void> {
-  const info = await FileSystem.getInfoAsync(BACKUP_DIR);
+async function ensureDir(dir = BACKUP_DIR): Promise<void> {
+  const info = await FileSystem.getInfoAsync(dir);
   if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(BACKUP_DIR, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
   }
 }
 
@@ -91,9 +99,9 @@ async function ensureDir(): Promise<void> {
  * whole reason to use it: copying the file underneath a live connection can
  * capture a torn write.
  */
-async function snapshotDatabase(ctx: RepositoryContext): Promise<Uint8Array> {
-  await ensureDir();
-  const snapshotPath = `${BACKUP_DIR}snapshot.db`;
+async function snapshotDatabase(ctx: RepositoryContext, dir = BACKUP_DIR): Promise<Uint8Array> {
+  await ensureDir(dir);
+  const snapshotPath = `${dir}snapshot.db`;
 
   await FileSystem.deleteAsync(snapshotPath, { idempotent: true });
   // The path is interpolated because VACUUM INTO takes no bind parameters.
@@ -220,6 +228,55 @@ export async function createBackup(
   const pruned = await pruneBackups();
 
   return { path, bytes: bytes.length, createdAt, pruned };
+}
+
+/**
+ * The cost of a backup, without making one.
+ *
+ * Timing `createBackup` itself is not an option on a device with real data: it
+ * writes into the user's backup folder, retention then deletes their oldest real
+ * archive to make room, and it reseals the stored wraps. So this takes a scratch
+ * ledger and throwaway keys, and returns the part a user waits on — snapshot,
+ * encryption, the write to disk — as one call to time. The keys are made here,
+ * outside that call, because an automatic backup derives nothing either: it
+ * seals with wraps it already holds.
+ *
+ * Everything it writes goes to its own folder and is deleted again.
+ */
+export async function prepareBenchmarkBackup(
+  ledger: ScratchLedger,
+  sodium?: SodiumBackend,
+): Promise<{ readonly write: () => Promise<void>; readonly discard: () => Promise<void> }> {
+  const backend = sodium ?? (await createNativeSodiumBackend());
+  const salt = generateSalt(backend);
+  const kek = deriveKek(backend, 'benchmark password', salt, KDF_PARAMS);
+  const recoveryKey = generateRecoveryKey(backend);
+  const bmk = generateBmk(backend);
+
+  const discard = (): Promise<void> => FileSystem.deleteAsync(BENCHMARK_DIR, { idempotent: true });
+  await discard();
+
+  return {
+    write: async () => {
+      const entries: ArchiveEntry[] = [
+        { id: 'db', kind: 'db', bytes: await snapshotDatabase(ledger, BENCHMARK_DIR) },
+        ...(await collectDocuments(ledger)),
+      ];
+      const { bytes } = writeArchive(backend, entries, kek, recoveryKey, salt, {
+        appVersion: APP_VERSION,
+        schemaVersion: SCHEMA_VERSION,
+        createdAt: Date.now(),
+        kdfParams: KDF_PARAMS,
+        bmk,
+      });
+      const path = `${BENCHMARK_DIR}benchmark.btbk`;
+      await FileSystem.writeAsStringAsync(path, encodeBase64(bytes), {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      await FileSystem.deleteAsync(path, { idempotent: true });
+    },
+    discard,
+  };
 }
 
 export interface RestoreResult {
