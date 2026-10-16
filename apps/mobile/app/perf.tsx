@@ -90,8 +90,16 @@ export default function PerfScreen(): ReactNode {
       // stands between the shutter sound and a number on screen. Measured over
       // the bundled receipt, because a benchmark that depends on what the camera
       // happened to see is not a benchmark.
+      // Not fatal: a release build bundles the receipt as an Android resource,
+      // which OCR cannot open by name, and that should cost this one number,
+      // not the backup timing after it.
       setNote('Reading the test receipt…');
-      for (const measurement of await measureShutter()) push(measurement);
+      let shutterFailure: string | null = null;
+      try {
+        for (const measurement of await measureShutter()) push(measurement);
+      } catch (error) {
+        shutterFailure = `Shutter not measured: ${error instanceof Error ? error.message : String(error)}`;
+      }
       setNote(null);
 
       // A backup of a ledger this size: snapshot, encryption and the write,
@@ -103,7 +111,7 @@ export default function PerfScreen(): ReactNode {
       } finally {
         await backup.discard();
       }
-      setNote(null);
+      setNote(shutterFailure);
     } catch (error) {
       setNote(`Stopped: ${error instanceof Error ? error.message : String(error)}`);
     } finally {

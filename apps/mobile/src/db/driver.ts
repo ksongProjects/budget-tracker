@@ -63,7 +63,19 @@ export async function createExpoDriver(
 ): Promise<SqliteDriver> {
   const db = await SQLite.openDatabaseAsync(
     name,
-    options.ownConnection === true ? { useNewConnection: true } : undefined,
+    options.ownConnection === true
+      ? {
+          useNewConnection: true,
+          // A connection of our own is one we close, and expo-sqlite's close
+          // first finalizes every statement on it — including the ones the
+          // FTS5 index prepared for itself. sqlite3_close then disconnects the
+          // index, which finalizes them again: a double free that kills the
+          // app (seen on /perf, after its full-text search). Every statement
+          // this driver makes is finalized by the *Async call that made it,
+          // so there is nothing of ours for the sweep to catch.
+          finalizeUnusedStatementsBeforeClosing: false,
+        }
+      : undefined,
     options.directory,
   );
 
