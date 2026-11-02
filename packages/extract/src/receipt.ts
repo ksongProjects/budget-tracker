@@ -1,6 +1,7 @@
 import { CurrencySchema, parseAmount } from '@budget/schema';
 import type { Currency, MinorUnits, Timestamp } from '@budget/schema';
 import type { Candidate, CandidateTransaction, OcrLine, OcrResult } from './types.js';
+import { joinRows, layOut } from './receipt-layout.js';
 
 /**
  * Tier 2: totals, tax, date, merchant, and card last-4 from OCR'd receipt text.
@@ -31,9 +32,11 @@ const TOTAL_LABELS: readonly { readonly pattern: RegExp; readonly confidence: nu
 
 /** Labels that look like totals but are not the one we want. */
 const TOTAL_EXCLUSIONS =
-  /\b(sub\s*total|subtotal|tax|vat|gst|hst|tip|gratuity|change|cash|discount|savings|item\s*count|balance\s*forward)\b/i;
+  /\b(sub\s*total|subtotal|tax|vat|gst|hst|pst|qst|tip|gratuity|change|cash|discount|savings|item\s*count|balance\s*forward)\b/i;
 
-const TAX_LABEL = /\b(sales\s*tax|tax|vat|gst|hst)\b/i;
+// PST and QST are how Canadian provinces print theirs, beside the federal GST.
+const TAX_LABEL = /\b(sales\s*tax|tax|vat|gst|hst|pst|qst)\b/i;
+const TOTAL_WORD = /\btotal\b/i;
 const TIP_LABEL = /\b(tip|gratuity)\b/i;
 
 /**
@@ -45,12 +48,12 @@ const TIP_LABEL = /\b(tip|gratuity)\b/i;
  * Canadian café ticket read without that came back as `$11.86` with a stray
  * `CA` left over, and the `CA` became the name of every item on it.
  *
- * `CAŠ` and `CAS` are how ML Kit reads `CA$` in small print. They count only
+ * `CAŠ`, `CAŞ` and `CAS` are how ML Kit reads `CA$` in small print. They count only
  * straight after a two-letter country, and a plain `S` only when a digit
  * follows at once, so `CASH 20.00` keeps its name.
  */
 const AMOUNT =
-  /(?:(?:\b(?:CA|US|AU|NZ|HK|A|C|S)\$|[$€£¥])\s*|\b(?:CA|US|AU|NZ|HK)(?:[Š§]\s*|S(?=\d)))?(\d{1,3}(?:[,\s]\d{3})*|\d+)([.,]\d{2})(?!\d)/g;
+  /(?:(?:\b(?:CA|US|AU|NZ|HK|A|C|S)\$|[$€£¥])\s*|\b(?:CA|US|AU|NZ|HK)(?:[Š§Ş]\s*|S(?=\d)))?(\d{1,3}(?:[,\s]\d{3})*|\d+)([.,]\d{2})(?!\d)/g;
 
 /**
  * A fresh matcher over the same pattern.
@@ -78,16 +81,6 @@ export function amountPattern(): RegExp {
 const CARD_LAST4 = /(?:[*x#•]{2,}\s*|ending\s+(?:in\s+)?|xxxx\s*)(\d{4})\b/i;
 
 /**
- * How far apart two lines' centres may be and still count as the same row,
- * as a fraction of the typical line height.
- *
- * Relative to line height rather than to the page, because engines report boxes
- * in whatever units they like — ML Kit uses pixels, others normalize to 0–1 —
- * and a fraction of a line height means the same thing in both.
- */
-const SAME_ROW_FRACTION = 0.6;
-
-/**
  * Real OCR engines emit a receipt's label column and amount column as separate
  * lines: `TAX` and `0.85` arrive apart, not as `TAX 0.85`.
  *
@@ -96,70 +89,11 @@ const SAME_ROW_FRACTION = 0.6;
  * rules silently missed every labelled amount as a result. Fixture text cannot
  * tell you how an engine splits a page.
  *
- * Where boxes are available, an amount-only line is merged into the label line
- * sharing its row. Without boxes the lines are returned untouched, since
- * guessing at pairing would invent numbers.
+ * Kept as the name the tests and the table use; the pairing itself lives in
+ * receipt-layout.ts, with the rest of reading a receipt as a page.
  */
 export function mergeColumns(lines: readonly OcrLine[]): OcrLine[] {
-  const centre = (line: OcrLine): number | undefined =>
-    line.box ? line.box.y + line.box.height / 2 : undefined;
-
-  // Letters left once the amounts are cut out mean a label shares the line.
-  // Cutting the amounts, rather than a list of symbols, is what lets `CA$11.86`
-  // count as price-only: the country belongs to the amount, not to a label.
-  const isAmountOnly = (line: OcrLine): boolean =>
-    amountsIn(line.text).length > 0 && !/[a-z]/i.test(line.text.replace(amountPattern(), ''));
-
-  const heights = lines
-    .map((line) => line.box?.height)
-    .filter((height): height is number => height !== undefined && height > 0)
-    .sort((a, b) => a - b);
-
-  if (heights.length === 0) return [...lines];
-
-  const medianHeight = heights[Math.floor(heights.length / 2)] ?? 0;
-  const tolerance = medianHeight * SAME_ROW_FRACTION;
-
-  const merged: OcrLine[] = [];
-  const consumed = new Set<number>();
-
-  for (const [index, line] of lines.entries()) {
-    if (consumed.has(index)) continue;
-
-    // A line that already carries its own amount needs no partner.
-    if (amountsIn(line.text).length > 0 || centre(line) === undefined) {
-      merged.push(line);
-      continue;
-    }
-
-    const row = centre(line);
-    if (row === undefined) {
-      merged.push(line);
-      continue;
-    }
-
-    const partner = lines.findIndex((other, otherIndex) => {
-      if (otherIndex === index || consumed.has(otherIndex)) return false;
-      if (!isAmountOnly(other)) return false;
-
-      const otherRow = centre(other);
-      return otherRow !== undefined && Math.abs(otherRow - row) <= tolerance;
-    });
-
-    if (partner === -1) {
-      merged.push(line);
-      continue;
-    }
-
-    consumed.add(partner);
-    const amountLine = lines[partner];
-    merged.push({
-      ...line,
-      text: `${line.text.trim()} ${amountLine?.text.trim() ?? ''}`.trim(),
-    });
-  }
-
-  return merged;
+  return joinRows(lines);
 }
 
 export interface ReceiptOptions {
@@ -180,7 +114,7 @@ export function extractReceipt(
   ocr: OcrResult,
   options: ReceiptOptions = {},
 ): CandidateTransaction {
-  const lines = mergeColumns(ocr.lines).filter((line) => line.text.trim() !== '');
+  const lines = layOut(ocr.lines).filter((line) => line.text.trim() !== '');
 
   const total = findTotal(lines);
   const candidate: {
@@ -189,7 +123,7 @@ export function extractReceipt(
 
   if (total) candidate.total = total;
 
-  const tax = findLabelled(lines, TAX_LABEL, 0.8);
+  const tax = findTax(lines);
   if (tax) candidate.tax = tax;
 
   const tip = findLabelled(lines, TIP_LABEL, 0.8);
@@ -269,6 +203,28 @@ function largestAmount(lines: readonly OcrLine[]): Candidate<MinorUnits> | undef
   }
 
   return best;
+}
+
+/**
+ * Tax, added up: a Canadian receipt prints provincial and federal tax on two
+ * lines, and the first alone was a third of the answer. A line that also says
+ * "total" restates the others and is not counted again.
+ */
+function findTax(lines: readonly OcrLine[]): Candidate<MinorUnits> | undefined {
+  const found = lines.filter(
+    (line) =>
+      TAX_LABEL.test(line.text) && !TOTAL_WORD.test(line.text) && amountsIn(line.text).length > 0,
+  );
+  if (found.length === 0) return undefined;
+  return {
+    value: sumMinor(found.map((line) => amountsIn(line.text).at(-1) as MinorUnits)),
+    confidence: found.length === 1 ? 0.8 : 0.75,
+    evidence: found.map((line) => line.text.trim()).join(' + '),
+  };
+}
+
+function sumMinor(amounts: readonly MinorUnits[]): MinorUnits {
+  return amounts.reduce((sum, amount) => sum + amount, 0) as MinorUnits;
 }
 
 function findLabelled(
@@ -364,52 +320,143 @@ const DATE_PATTERNS: readonly { readonly pattern: RegExp; readonly order: 'dmy' 
     { pattern: /\b(\d{1,2})[/.](\d{1,2})[/.](\d{2})\b/, order: 'mdy' },
   ];
 
+/** A line that says what its date is: `DATE 11/1/2026 4:43 PM`. */
+const DATE_LABEL = /\b(?:date|dated|datum|fecha)\b/i;
+
+/** `4:43 PM`, `16:43`, `5:43:01 p.m.` — a time of day. */
+const TIME =
+  /(?<![\d:])([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?:\s*([ap])\.?\s*m\b\.?)?(?![\d:])/i;
+
+/** How recent the likelier of two readings must be to settle an ambiguous date. */
+const RECENT_MS = 45 * 86_400_000;
+
 /**
- * The receipt date. Ambiguous day/month order is the known weakness: 03/04/2026
- * is March 4th in the US and April 3rd almost everywhere else. We assume
- * month-first and lower the confidence when the reading is ambiguous, so the
- * confirm screen can flag it rather than quietly filing the wrong month.
+ * The receipt date, and the time when one is printed beside it.
+ *
+ * A line labelled as the date wins over the first date found: an invoice
+ * prints a service history, and a payment slip its own timestamp, and both
+ * are dates too.
+ *
+ * Day/month order is the known weakness: 03/04/2026 is March 4th in the US and
+ * April 3rd almost everywhere else. When the receipt cannot say, the capture
+ * can: a receipt photographed on 2 November that reads as either 1 November or
+ * 11 January is almost certainly the first. Only when both readings are
+ * plausible is the date flagged for the user to check.
  */
 function findDate(
   lines: readonly OcrLine[],
   now: number | undefined,
 ): Candidate<Timestamp> | undefined {
-  for (const line of lines) {
-    for (const { pattern, order } of DATE_PATTERNS) {
-      const match = pattern.exec(line.text);
-      if (!match) continue;
+  const labelled = lines.findIndex(
+    (line) => DATE_LABEL.test(line.text) && readDate(line.text, now) !== undefined,
+  );
+  const order = labelled === -1 ? [...lines.keys()] : [labelled, ...lines.keys()];
 
-      const parts = [match[1], match[2], match[3]].map(Number);
-      const [a, b, c] = parts as [number, number, number];
+  for (const index of order) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    const date = readDate(line.text, now);
+    if (!date) continue;
 
-      let year: number;
-      let month: number;
-      let day: number;
+    // The time sits on the date's line, or on a line of its own just after it.
+    const own = readTime(line.text);
+    const next = own === undefined ? readTime(onlyTime(lines[index + 1]?.text)) : undefined;
+    const time = own ?? next;
 
-      if (order === 'ymd') {
-        [year, month, day] = [a, b, c];
-      } else {
-        [month, day] = [a, b];
-        year = c < 100 ? 2000 + c : c;
-      }
+    const at = new Date(date.value);
+    if (time) at.setHours(time.hours, time.minutes, 0, 0);
 
-      if (month < 1 || month > 12 || day < 1 || day > 31) continue;
-
-      const date = new Date(year, month - 1, day, 12);
-      if (Number.isNaN(date.getTime())) continue;
-
-      const ambiguous = order !== 'ymd' && day <= 12 && month <= 12;
-      return {
-        value: date.getTime() as Timestamp,
-        confidence: ambiguous ? 0.55 : 0.85,
-        evidence: line.text.trim(),
-      };
-    }
-
-    const named = readNamedDate(line.text, now);
-    if (named) return { ...named, evidence: line.text.trim() };
+    return {
+      value: at.getTime() as Timestamp,
+      confidence: date.confidence,
+      evidence:
+        next === undefined
+          ? line.text.trim()
+          : `${line.text.trim()} ${lines[index + 1]?.text.trim() ?? ''}`,
+    };
   }
   return undefined;
+}
+
+function readDate(
+  text: string,
+  now: number | undefined,
+): { readonly value: Timestamp; readonly confidence: number } | undefined {
+  for (const { pattern, order } of DATE_PATTERNS) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+
+    const [a, b, c] = [match[1], match[2], match[3]].map(Number) as [number, number, number];
+
+    if (order === 'ymd') {
+      const date = calendarDate(a, b, c);
+      if (date !== undefined) return { value: date, confidence: 0.85 };
+      continue;
+    }
+
+    const year = c < 100 ? 2000 + c : c;
+    const monthFirst = calendarDate(year, a, b);
+    const dayFirst = a === b ? undefined : calendarDate(year, b, a);
+
+    if (monthFirst === undefined && dayFirst === undefined) continue;
+    if (monthFirst === undefined || dayFirst === undefined) {
+      return { value: (monthFirst ?? dayFirst) as Timestamp, confidence: 0.85 };
+    }
+    return settle(monthFirst, dayFirst, now);
+  }
+
+  return readNamedDate(text, now);
+}
+
+/**
+ * Two readings of one date, both real days. The capture time settles it when
+ * one reading is in the future — a receipt records something that already
+ * happened — or when one is recent and the other is not. Otherwise
+ * month-first, flagged for the user.
+ */
+function settle(
+  monthFirst: Timestamp,
+  dayFirst: Timestamp,
+  now: number | undefined,
+): { readonly value: Timestamp; readonly confidence: number } {
+  const flagged = { value: monthFirst, confidence: 0.55 };
+  if (now === undefined) return flagged;
+
+  const past = [monthFirst, dayFirst].filter((value) => value <= now + DAY_MS);
+  if (past.length === 1) return { value: past[0] as Timestamp, confidence: 0.8 };
+  if (past.length === 0) return flagged;
+
+  const [recent, older] = monthFirst >= dayFirst ? [monthFirst, dayFirst] : [dayFirst, monthFirst];
+  if (now - recent <= RECENT_MS && now - older > RECENT_MS) {
+    return { value: recent, confidence: 0.8 };
+  }
+  return flagged;
+}
+
+/** Noon on a real calendar day, or undefined: `new Date` rolls 31 April into May. */
+function calendarDate(year: number, month: number, day: number): Timestamp | undefined {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  const date = new Date(year, month - 1, day, 12);
+  if (date.getMonth() !== month - 1 || date.getDate() !== day) return undefined;
+  return date.getTime() as Timestamp;
+}
+
+function readTime(text: string | undefined): { hours: number; minutes: number } | undefined {
+  const match = text === undefined ? null : TIME.exec(text);
+  if (!match) return undefined;
+  let hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const half = match[3]?.toLowerCase();
+  if (half !== undefined) {
+    if (hours < 1 || hours > 12) return undefined;
+    hours = (hours % 12) + (half === 'p' ? 12 : 0);
+  }
+  return { hours, minutes };
+}
+
+/** A line that is a time and nothing else, as engines split `03/14/2026  09:12 AM`. */
+function onlyTime(text: string | undefined): string | undefined {
+  return text !== undefined && /^\s*[\d:]+\s*(?:[ap]\.?\s*m\.?)?\s*$/i.test(text) ? text : undefined;
 }
 
 const DAY_MS = 86_400_000;
@@ -528,6 +575,9 @@ function findMerchant(lines: readonly OcrLine[]): Candidate<string> | undefined 
     return { value: name, confidence: 0.75, evidence };
   }
 
+  const anchored = aboveTheAddress(lines);
+  if (anchored) return anchored;
+
   for (const line of lines.slice(0, 5)) {
     const text = line.text.trim();
     if (NOT_A_MERCHANT.test(text)) continue;
@@ -537,6 +587,49 @@ function findMerchant(lines: readonly OcrLine[]): Candidate<string> | undefined 
     if ((text.replace(/\D/g, '').length / text.length) > 0.4) continue;
 
     return { value: text, confidence: 0.6, evidence: text };
+  }
+  return undefined;
+}
+
+/** A street line: a number, then a name ending in what kind of street it is. */
+const STREET =
+  /^\s*\d{1,6}[a-z]?\s+.*\b(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|way|lane|ln|highway|hwy|place|pl|court|ct|crescent|cres|parkway|pkwy|square|sq|plaza|strasse|straße|rue|via|calle)\b\.?/i;
+/** A North American phone number, the other line every shop header prints. */
+const PHONE = /^\s*(?:tel[:.\s]*)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]\d{4}\s*$/i;
+const PAGE_NUMBER = /^\s*page\s+\d+\s*(?:of\s*\d+)?\s*$/i;
+
+/**
+ * The name printed over the address.
+ *
+ * A shop's header is its name, then its street, then its phone number. Found
+ * by the address rather than by being first, because on a photo the first
+ * line read is whatever else was in frame — a car's dashboard, the edge of a
+ * card slip — and on a printed invoice it can be "Page 1 of 1".
+ */
+function aboveTheAddress(lines: readonly OcrLine[]): Candidate<string> | undefined {
+  const address = lines.findIndex((line) => STREET.test(line.text) || PHONE.test(line.text));
+  if (address <= 0) return undefined;
+  const anchor = lines[address]?.box;
+
+  for (let index = address - 1; index >= Math.max(0, address - 4); index -= 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    const text = line.text.trim();
+
+    // On a photo, the name stands over the address, not beside it.
+    const box = line.box;
+    if (anchor && box && (box.x > anchor.x + anchor.width || box.x + box.width < anchor.x)) {
+      continue;
+    }
+    if (STREET.test(text) || PHONE.test(text) || PAGE_NUMBER.test(text)) continue;
+    if (NOT_A_MERCHANT.test(text) || FIELD_LINE.test(text) || amountsIn(text).length > 0) continue;
+    if (text.replace(/\D/g, '').length / text.length > 0.4) continue;
+
+    return {
+      value: text,
+      confidence: 0.8,
+      evidence: `${text} / ${lines[address]?.text.trim() ?? ''}`,
+    };
   }
   return undefined;
 }

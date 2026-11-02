@@ -1,6 +1,8 @@
 import { formatAmount, sumAmounts } from '@budget/schema';
 import type { Currency, MinorUnits } from '@budget/schema';
-import { amountPattern, amountsIn, mergeColumns } from './receipt.js';
+import { amountPattern, amountsIn } from './receipt.js';
+import { layOut, medianHeight, priceColumn } from './receipt-layout.js';
+import type { LaidOutLine } from './receipt-layout.js';
 import type { LineItem, StructuredCandidate } from './llm/types.js';
 import type { Candidate, OcrLine, OcrResult } from './types.js';
 
@@ -47,9 +49,10 @@ export interface ReceiptTable {
 }
 
 const KINDS: readonly { readonly pattern: RegExp; readonly kind: ReceiptRowKind }[] = [
-  { pattern: /\b(sub\s*total|subtotal|zwischensumme)\b/i, kind: 'subtotal' },
-  { pattern: /\b(discount|savings|coupon|promo|rabatt)\b/i, kind: 'discount' },
-  { pattern: /\b(sales\s*tax|tax|vat|gst|hst|mwst|tva)\b/i, kind: 'tax' },
+  // A bare `SALE` under a discount is the subtotal after it, not shopping.
+  { pattern: /\b(sub\s*total|subtotal|zwischensumme)\b|^\s*sale\s*$/i, kind: 'subtotal' },
+  { pattern: /\b(discount|savings|coupon|promo|rabatt)\b|^\s*\$?\d+%?\s+off\b/i, kind: 'discount' },
+  { pattern: /\b(sales\s*tax|tax|vat|gst|hst|pst|qst|mwst|tva)\b/i, kind: 'tax' },
   { pattern: /\b(tip|gratuity)\b/i, kind: 'tip' },
   {
     pattern: /\b(service\s*charge|delivery|shipping|fee|surcharge|levy|deposit)\b/i,
@@ -93,11 +96,16 @@ const TRAILING_SEPARATOR = /\s+[x×@]$/i;
 const TRAILING_PUNCTUATION = /[\s.:•·*-]+$/;
 
 export function buildReceiptTable(ocr: OcrResult): ReceiptTable {
-  const lines = mergeColumns(ocr.lines).filter((line) => line.text.trim() !== '');
+  const lines = layOut(ocr.lines).filter((line) => line.text.trim() !== '');
 
-  const priced = lines.map((line) => amountsIn(line.text).length > 0);
+  const column = priceColumn(lines);
+  // With a price column found, a priced line outside it is something else in
+  // frame — a card slip, a service history — not a row of this receipt.
+  const priced = lines.map(
+    (line, index) => amountsIn(line.text).length > 0 && (column === undefined || column.has(index)),
+  );
   const first = priced.indexOf(true);
-  const last = priced.lastIndexOf(true);
+  let last = priced.lastIndexOf(true);
 
   if (first === -1) {
     // No prices anywhere: everything read is header, and there is no table to
@@ -105,22 +113,93 @@ export function buildReceiptTable(ocr: OcrResult): ReceiptTable {
     return { header: lines.map((line) => line.text.trim()), rows: [], engine: ocr.engine };
   }
 
+  // Nothing after the total is shopping: it is the card, the change, the
+  // thanks. The last total, so a tip line between "total" and "grand total"
+  // still counts.
+  for (let index = last; index >= first; index -= 1) {
+    if (priced[index] && classify(labelOf(lines[index]?.text ?? '')) === 'total') {
+      last = index;
+      break;
+    }
+  }
+
+  const inDescriptions = descriptionColumn(lines, priced);
+  const height = medianHeight(lines);
+
   const header = lines.slice(0, first).map((line) => line.text.trim());
   const rows: ReceiptRow[] = [];
+  let previous: { readonly row: ReceiptRow; readonly line: LaidOutLine } | undefined;
 
-  for (const [offset, line] of lines.slice(first, last + 1).entries()) {
-    const row = toRow(line, `r${String(offset)}`);
-    if (row) rows.push(row);
+  for (let index = first; index <= last; index += 1) {
+    const line = lines[index] as LaidOutLine;
+    const hasPrice = amountsIn(line.text).length > 0;
+    if (hasPrice && !priced[index]) continue;
+    if (!hasPrice && !inDescriptions(line)) continue;
+
+    // A description that wrapped: no price of its own, straight under an item.
+    if (!hasPrice && previous !== undefined && previous.row.kind === 'item' && follows(previous.line, line, height)) {
+      const joined = { ...previous.row, label: `${previous.row.label} ${labelOf(line.text)}`.trim() };
+      rows[rows.length - 1] = joined;
+      previous = { row: joined, line };
+      continue;
+    }
+
+    const row = toRow(line, `r${String(index - first)}`);
+    if (row) {
+      rows.push(row);
+      previous = { row, line };
+    }
   }
 
   return { header, rows, engine: ocr.engine };
+}
+
+/**
+ * Whether an unpriced line sits in the column the priced rows' labels start
+ * in. A checklist printed beside the prices, or a slip held over the edge of
+ * the receipt, has lines on the same rows, and they are not its shopping.
+ * Without boxes every line counts, as it always did.
+ */
+function descriptionColumn(
+  lines: readonly LaidOutLine[],
+  priced: readonly boolean[],
+): (line: LaidOutLine) => boolean {
+  const lefts = lines
+    .filter((line, index) => priced[index] && line.labelLeft !== undefined)
+    .map((line) => line.labelLeft as number)
+    .sort((a, b) => a - b);
+  const left = lefts[Math.floor(lefts.length / 2)];
+  const height = medianHeight(lines);
+  if (left === undefined || height === 0 || lefts.length < 3) return () => true;
+
+  return (line) => line.box === undefined || Math.abs(line.box.x - left) <= height * 4;
+}
+
+/**
+ * The second line continues the first: straight under it and indented, the
+ * way an invoice wraps `PREMIUM FULL SYNTHETIC` onto `  PACKAGE`. A line at
+ * the same indent is a row of its own whose price OCR lost — keeping it apart
+ * is what lets the screen ask for that one number — and so is one that starts
+ * with a count.
+ */
+function follows(above: LaidOutLine, below: LaidOutLine, height: number): boolean {
+  if (above.box === undefined || below.box === undefined || height === 0) return false;
+  if (LEADING_QUANTITY.test(below.text.trim())) return false;
+  const top = above.box.y + above.box.height;
+  const indent = below.box.x - (above.labelLeft ?? above.box.x);
+  return below.box.y - top <= height * 0.8 && below.box.y >= above.box.y && indent >= height * 0.25;
+}
+
+/** A line's text without its amounts, as a row label would read. */
+function labelOf(text: string): string {
+  return text.replace(amountPattern(), ' ').replace(/\s{2,}/g, ' ').trim();
 }
 
 function toRow(line: OcrLine, id: string): ReceiptRow | undefined {
   const text = line.text.trim();
   const amounts = amountsIn(text);
   // The last amount on a line is its value: `2 @ 3.50   7.00` charges seven.
-  const amount = amounts.at(-1) ?? null;
+  let amount = amounts.at(-1) ?? null;
 
   let label = text.replace(amountPattern(), ' ').replace(/\s{2,}/g, ' ').trim();
   label = label
@@ -141,12 +220,24 @@ function toRow(line: OcrLine, id: string): ReceiptRow | undefined {
 
   if (label === '' && amount === null) return undefined;
 
+  // An invoice prints quantity and price as two columns: `1.00   142.99`. A
+  // whole number before the price is the count; `3.50` litres is not one.
+  const before = amounts.at(-2);
+  if (quantity === null && before !== undefined && before > 0 && before % 100 === 0 && before <= 9900) {
+    quantity = before / 100;
+  }
+
+  const kind = classify(label);
+  // Money off is negative wherever it is printed: `-25.00`, `25.00-` or a
+  // bare `25.00` beside the word discount.
+  if (kind === 'discount' && amount !== null && amount > 0) amount = (0 - amount) as MinorUnits;
+
   return {
     id,
     label,
     amount,
     quantity,
-    kind: classify(label),
+    kind,
     // A row with both halves is as good as Tier 2 gets. One half alone is a
     // question, and the confirm screen shows it as one.
     confidence: amount !== null && label !== '' ? 0.8 : 0.4,
