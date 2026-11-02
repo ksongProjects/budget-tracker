@@ -1,0 +1,48 @@
+# First launch → typed spend → listed → detail → delete → summary.
+appId: com.ksongprojects.txns
+name: Core ledger
+---
+- runFlow: common/fresh-install.yaml
+- runFlow:
+    file: common/type-spend.yaml
+    env:
+      AMOUNT: "1250"
+      MERCHANT: "Blue Bottle"
+- assertVisible: "12.50"
+- assertNotVisible: "Nothing recorded yet"
+
+- runFlow:
+    file: common/type-spend.yaml
+    env:
+      AMOUNT: "4000"
+      MERCHANT: "Shell"
+
+# Search narrows the list.
+- tapOn: "Search merchants and notes"
+- inputText: "shell"
+- hideKeyboard
+- assertNotVisible: "Blue Bottle"
+- assertVisible: "Shell"
+- tapOn: "Search merchants and notes"
+- eraseText: 10
+- hideKeyboard
+- assertVisible: "Blue Bottle"
+
+# Detail, then delete — the confirmation is a native dialog.
+- tapOn: "Blue Bottle"
+- assertVisible: "manual"
+- scrollUntilVisible:
+    element: "Delete"
+- tapOn: "Delete"
+- assertVisible: "Delete this spend?"
+- tapOn: "DELETE"
+- assertNotVisible: "Blue Bottle"
+- assertVisible: "Shell"
+
+# Survives a restart: the ledger is on disk, not in memory.
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Shell"
+    timeout: 15000
+- assertNotVisible: "Start tracking"

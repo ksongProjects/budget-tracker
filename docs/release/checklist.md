@@ -5,8 +5,18 @@ either done, or listed with what would finish it — nothing is assumed.
 
 ## Before a build
 
-- [ ] `pnpm check` green on `main` (typecheck, lint, 636 node tests, 64 browser
-      tests, web build, bundle budget).
+- [ ] `pnpm check` green on `main`: typecheck, lint, the node suite, the
+      mobile screen suite and the browser suite, each above its coverage floor,
+      then the web build and the bundle budget.
+- [ ] The release APK's JavaScript is the commit being shipped. Gradle only
+      re-bundles when something under `apps/mobile` changes, so a fix that lives
+      only in `packages/*` ships the **previous** code with no error. Delete
+      `apps/mobile/android/app/build/generated/assets/react` before
+      `assembleRelease`, every time.
+- [ ] The four end-to-end flows pass on the emulator against an x86_64 build of
+      the same commit (`node apps/mobile/e2e/run.mjs`, see
+      [running-locally.md](../running-locally.md#end-to-end-flows)): core
+      ledger, capture, upload a file, backup and restore.
 - [ ] Benchmarks run on a **physical** phone, not the emulator, and recorded in
       the milestone report. The one budget currently missed — shutter to
       provisional total — is ML Kit on an x86 emulator and needs a real device

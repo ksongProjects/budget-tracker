@@ -1,0 +1,19 @@
+# In the system file picker: find ${FILE} by name and choose it.
+# run.mjs pushes every fixture to /sdcard/Download before the flows run.
+# Searching, rather than scrolling Downloads, does not depend on which folder
+# the picker last remembered or how it sorts.
+appId: com.ksongprojects.txns
+---
+- extendedWaitUntil:
+    visible: "Search"
+    timeout: 10000
+- tapOn: "Search"
+- inputText: ${FILE}
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: ${FILE}
+    timeout: 10000
+- tapOn:
+    text: ${FILE}
+    index: 0
+    below: ".*[Rr]esults.*|Recent|Downloads|Images|Documents"

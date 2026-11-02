@@ -28,8 +28,14 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Test
-        run: pnpm test
+      - name: Test, with coverage floors
+        run: pnpm vitest run --coverage
+
+      # Every route of the mobile app, rendered against a real SQLite ledger.
+      # Native engines are stood in for here and exercised by the Maestro
+      # flows on an emulator before a release (docs/running-locally.md).
+      - name: Test the mobile screens
+        run: pnpm --filter @budget/mobile test:coverage
 
       # The web driver runs SQLite compiled to WASM over OPFS, and neither
       # exists outside a real browser. Shimming it would make the suite green
@@ -38,7 +44,7 @@ jobs:
         run: pnpm --filter @budget/web exec playwright install --with-deps chromium
 
       - name: Test the web build in a browser
-        run: pnpm test:web
+        run: pnpm --filter @budget/web exec vitest run --coverage
 
       # The bundle is a promise: no third-party code, and a size a phone can
       # actually load. Both are checked against the built output, not intended.

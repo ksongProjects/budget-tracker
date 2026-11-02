@@ -73,7 +73,7 @@ export default [
   },
 
   {
-    files: ['**/metro.config.js', '**/babel.config.js'],
+    files: ['**/metro.config.js', '**/babel.config.js', '**/jest.config.js', 'apps/mobile/test/*.js'],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       sourceType: 'commonjs',

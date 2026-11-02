@@ -44,6 +44,18 @@ export default defineConfig({
     // which finishes when.
     fileParallelism: false,
     globalSetup: ['./test/fake-drive-server.ts'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      // The database worker runs in a Worker, which v8 coverage in the page
+      // cannot see; driver.test.ts exercises it through the driver. main.ts
+      // is the two-line entry point.
+      exclude: ['**/*.test.ts', 'src/db/worker.ts', 'src/main.ts'],
+      reporter: ['text-summary', 'json-summary', 'html'],
+      // Floors at what was measured when they were set, rounded down. They
+      // only ratchet — see the root vitest.config.ts.
+      thresholds: { lines: 81, branches: 57, functions: 75, statements: 79 },
+    },
     browser: {
       enabled: true,
       provider: playwright(),

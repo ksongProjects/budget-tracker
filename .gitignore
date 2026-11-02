@@ -2,6 +2,9 @@ node_modules/
 dist/
 build/
 coverage/
+# Maestro's run report
+apps/mobile/e2e/report.xml
+
 # Vitest browser-mode leftovers from a failing run
 .vitest-attachments/
 **/__screenshots__/

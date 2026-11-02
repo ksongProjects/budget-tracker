@@ -1,0 +1,57 @@
+# Receipt capture with the real native engines: ML Kit reads the bundled test
+# receipt, the rules turn it into a record, and the record saves with its items.
+# The emulator's camera sees a virtual room, not a receipt, so the receipt
+# arrives as an image upload — the same confirm screen a camera photo opens.
+# The camera itself is checked separately: permission, shutter, confirm.
+# Voice is not here: the emulator's microphone is silence (docs/deferred.md).
+appId: com.ksongprojects.txns
+name: Capture
+---
+- runFlow: common/fresh-install.yaml
+
+- tapOn: "Record a spend"
+- tapOn: "Upload a file"
+- tapOn: "Choose a file"
+- runFlow:
+    file: common/pick-file.yaml
+    env:
+      FILE: "test-receipt.png"
+- extendedWaitUntil:
+    visible: "Check the details"
+    timeout: 20000
+# Read by ML Kit on the device, not replayed.
+- extendedWaitUntil:
+    visible: "BLUE BOTTLE COFFEE"
+    timeout: 30000
+- assertVisible: "10.60"
+- assertVisible: ".*they add up.*"
+- scrollUntilVisible:
+    element: "Save"
+- tapOn: "Save"
+- extendedWaitUntil:
+    visible: "BLUE BOTTLE COFFEE"
+    timeout: 15000
+- assertNotVisible: "Not counted until you confirm"
+- tapOn: "BLUE BOTTLE COFFEE"
+- assertVisible: "photo"
+# ML Kit reads this O as a zero on the emulator; the rules are not the subject here.
+- assertVisible: ".*[O0]at Latte.*"
+- assertVisible: ".*Croissant.*"
+- back
+
+# The camera path: ask, allow, shoot, land on the confirm screen.
+- tapOn: "Record a spend"
+- tapOn: "Photograph a receipt"
+- runFlow:
+    when:
+      visible: "Allow camera"
+    commands:
+      - tapOn: "Allow camera"
+      - tapOn: "While using the app"
+- extendedWaitUntil:
+    visible: "Take photo"
+    timeout: 15000
+- tapOn: "Take photo"
+- extendedWaitUntil:
+    visible: "Check the details"
+    timeout: 30000

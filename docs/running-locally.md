@@ -158,16 +158,72 @@ run. Expect the first iOS session to find things.
 ## Checks
 
 ```bash
-pnpm check       # typecheck, lint, node tests, browser tests, bundle budget
-pnpm test        # the fast suite only
-pnpm test:web    # the browser suite, in headless Chromium
+pnpm check         # typecheck, lint, every suite with coverage, bundle budget
+pnpm test          # the fast node suite only
+pnpm test:web      # the browser suite, in headless Chromium
+pnpm test:mobile   # the mobile screen suite (Jest, no device)
+pnpm coverage      # all three suites, failing below their coverage floors
 ```
+
+Four layers, each catching what the one below cannot:
+
+| Suite | Runs | What it proves |
+|---|---|---|
+| Node (Vitest) | CI | Packages and mobile logic: db, backup, crypto, extraction |
+| Browser (Vitest + Playwright) | CI | The web app against real OPFS and SQLite WASM |
+| Mobile screens (Jest + Testing Library) | CI | Every route, the real layout and a real SQLite ledger; only what needs a device is stood in for (`apps/mobile/test/setup.ts`) |
+| End-to-end (Maestro) | Emulator, before a release | The release APK with the real native modules: SQLite, ML Kit, libsodium, the PDF WebView |
+
+Coverage floors live beside each suite's config (`vitest.config.ts`,
+`apps/web/vitest.config.ts`, `apps/mobile/jest.config.js`). They only go up:
+raise one when a change lifts it; a run below one fails.
+
+A test written as `test.failing` is a known bug, recorded: it passes while the
+bug is there and fails once it is fixed, at which point it becomes a plain
+`test`.
 
 The browser suite downloads a headless Chromium the first time:
 
 ```bash
 pnpm --filter @budget/web exec playwright install chromium
 ```
+
+## End-to-end flows
+
+Maestro drives the real release build on the Android emulator. The flows are in
+`apps/mobile/e2e/flows/`; the files they upload are in `apps/mobile/e2e/fixtures/`
+(regenerate with `node apps/mobile/e2e/make-fixtures.mjs`).
+
+**Emulator only.** Every flow starts with `clearState`, which deletes the app's
+data. `run.mjs` refuses any device that is not an `emulator-*` reporting itself
+as virtual, and ignores a phone plugged in at the same time.
+
+1. Install the Maestro CLI (2.11.0 is what the flows were written against) to
+   `~/.maestro`. It runs on Android Studio's bundled JDK.
+2. Build the commit for the emulator's ABI, with the bundle forced fresh:
+
+   ```bash
+   cd apps/mobile/android
+   rm -rf app/build/generated/assets/react
+   JAVA_HOME="C:/Program Files/Android/Android Studio/jbr" ./gradlew assembleRelease -PreactNativeArchitectures=x86_64
+   ```
+
+   The published APK is arm64-only and does not start on an x86_64 AVD. Keep
+   this build out of `dist/`.
+3. Boot the emulator, then:
+
+   ```bash
+   node apps/mobile/e2e/run.mjs
+   ```
+
+   It installs the APK, pushes the fixtures to Downloads and runs the four
+   flows; `--no-install` reuses what is installed, and a flow file can be named
+   to run one. A JUnit report is written to `apps/mobile/e2e/report.xml`.
+
+What the flows cannot reach: voice (the emulator's microphone is silence), and
+restoring onto a **wiped** device — an archive cannot leave a release build's
+private folder yet (see `docs/deferred.md`). The screen suite covers that round
+trip without a device.
 
 ## When something will not start
 

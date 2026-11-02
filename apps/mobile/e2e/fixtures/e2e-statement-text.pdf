@@ -1,0 +1,47 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 459 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 40 752 Tm (First National Bank) Tj
+1 0 0 1 40 682 Tm (Date) Tj
+1 0 0 1 160 682 Tm (Description) Tj
+1 0 0 1 420 682 Tm (Amount) Tj
+1 0 0 1 40 662 Tm (2026-03-14) Tj
+1 0 0 1 160 662 Tm (BLUE BOTTLE COFFEE) Tj
+1 0 0 1 420 662 Tm (-4.50) Tj
+1 0 0 1 40 642 Tm (2026-03-15) Tj
+1 0 0 1 160 642 Tm (SAFEWAY) Tj
+1 0 0 1 420 642 Tm (-62.18) Tj
+1 0 0 1 40 622 Tm (2026-03-16) Tj
+1 0 0 1 160 622 Tm (RENT MARCH) Tj
+1 0 0 1 420 622 Tm (-1850.00) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000751 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+821
+%%EOF

@@ -1,0 +1,111 @@
+# Upload a file: a statement CSV, a PDF with a text layer, and a scanned PDF
+# read by on-device OCR. Then the CSV again, which must find only duplicates.
+appId: com.ksongprojects.txns
+name: Upload a file
+---
+- runFlow: common/fresh-install.yaml
+
+# CSV.
+- tapOn: "Record a spend"
+- tapOn: "Upload a file"
+- tapOn: "Choose a file"
+- runFlow:
+    file: common/pick-file.yaml
+    env:
+      FILE: "e2e-statement.csv"
+- extendedWaitUntil:
+    visible: "Columns"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Preview the import"
+- tapOn: "Preview the import"
+- scrollUntilVisible:
+    element: "3 to import, 0 already in your ledger"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Import 3 rows"
+- tapOn: "Import 3 rows"
+- extendedWaitUntil:
+    visible: ".*3 rows imported.*"
+    timeout: 15000
+
+# PDF with a text layer: pdf.js in the hidden WebView.
+- scrollUntilVisible:
+    element: "Choose another file|Choose a file"
+    direction: UP
+- tapOn: "Choose another file|Choose a file"
+- runFlow:
+    file: common/pick-file.yaml
+    env:
+      FILE: "e2e-statement-text.pdf"
+- extendedWaitUntil:
+    visible: "Columns"
+    timeout: 30000
+- scrollUntilVisible:
+    element: "Preview the import"
+- tapOn: "Preview the import"
+- scrollUntilVisible:
+    element: "3 to import, 0 already in your ledger"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Import 3 rows"
+- tapOn: "Import 3 rows"
+- extendedWaitUntil:
+    visible: ".*3 rows imported.*"
+    timeout: 15000
+
+# Scanned PDF: no text layer, so the page is drawn and read by ML Kit.
+- scrollUntilVisible:
+    element: "Choose another file|Choose a file"
+    direction: UP
+- tapOn: "Choose another file|Choose a file"
+- runFlow:
+    file: common/pick-file.yaml
+    env:
+      FILE: "e2e-statement-scanned.pdf"
+- extendedWaitUntil:
+    visible: "Columns"
+    timeout: 60000
+- scrollUntilVisible:
+    element: "Preview the import"
+- tapOn: "Preview the import"
+- scrollUntilVisible:
+    element: "3 to import, 0 already in your ledger"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Import 3 rows"
+- tapOn: "Import 3 rows"
+- extendedWaitUntil:
+    visible: ".*3 rows imported.*"
+    timeout: 15000
+
+# The CSV again: everything recognised, nothing new.
+- scrollUntilVisible:
+    element: "Choose another file|Choose a file"
+    direction: UP
+- tapOn: "Choose another file|Choose a file"
+- runFlow:
+    file: common/pick-file.yaml
+    env:
+      FILE: "e2e-statement.csv"
+- extendedWaitUntil:
+    visible: "Columns"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Preview the import"
+- tapOn: "Preview the import"
+- scrollUntilVisible:
+    element: "0 to import, 3 already in your ledger"
+    timeout: 15000
+
+# Nine unconfirmed rows on the ledger, one from each file at least.
+- back
+- extendedWaitUntil:
+    visible: "To confirm"
+    timeout: 10000
+- scrollUntilVisible:
+    element: ".*WHOLE FOODS.*"
+    timeout: 20000
+- scrollUntilVisible:
+    element: ".*NETFLIX.*"
+    timeout: 20000

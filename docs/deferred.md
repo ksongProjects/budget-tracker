@@ -45,6 +45,13 @@ for exactly what to create.
 - **The OS schedule has only ever been forced.** It was run through
   `adb shell cmd jobscheduler run -f`, which exercises the same code path, but
   no run has been observed happening on its own twelve hours later.
+- **A backup cannot leave the phone without Drive.** Archives are written to
+  the app's private folder, which no file manager and no cable can reach on a
+  release build, and the backup screen has no share button — yet without a
+  Google client id it tells the user to "copy one off with the share sheet or a
+  cable". Until one of those exists, a lost phone loses its backups with it. A
+  "Share this backup" button on the backup screen closes it, and lets the
+  end-to-end flow restore onto a wiped emulator.
 - **The recovery key is shown as text only.** Phase 4.2 asked for a key file and
   a QR code; what exists is the printed key and a copy button. A user without a
   password manager has nowhere good to put it.
@@ -76,6 +83,12 @@ for exactly what to create.
 - **A stray empty `restore.db`** may sit in the SQLite directory of any device
   that ran a build from before the restore-path fix. Cosmetic; cleared by a
   reinstall.
+- **The home list names a row by its note.** For a typed or photographed spend
+  that is the merchant; for an imported statement row it is the bank's raw
+  description (`SQ *BLUE BOTTLE COFFEE`), where the web ledger shows the
+  merchant. Recorded as a `test.failing` in `apps/mobile/test/upload.test.tsx`.
+- **Nothing links to the Summary screen.** It is reached only by its URL
+  (`txns://summary`), like the diagnostics and benchmark screens.
 - **No management screens** for accounts, categories or merchants. Rows carry
   those columns and imports will populate them; nothing edits them yet.
 
@@ -136,6 +149,17 @@ for exactly what to create.
   the first number, which is right when the amount follows the name — "at
   Tartine, eighteen fifty" — and wrong for "at Safeway 0421".
 
+## Reading receipts from photos
+
+- **Rows are found by the price column.** A photo is straightened by the tilt
+  its words measure, and a row belongs to the receipt when its price stands in
+  the longest chain of right-aligned prices. A receipt with fewer than three
+  prices has no column to find, and is read line by line as before.
+- **One real photo is in the fixtures** (`packages/extract/src/fixtures/real/`):
+  a tilted invoice with a card slip in frame. Phase 13's corpus is the rest.
+- **A count printed in words is not split from the name.** `2 FREE OIL TOP UP`
+  keeps reading its leading number as a quantity, which here it is not.
+
 ## Reading with a model
 
 - **No on-device model adapter exists.** Apple Foundation Models needs an iOS 26
@@ -183,6 +207,10 @@ for exactly what to create.
   text, so it proves the *format* still opens and cannot prove a real ledger
   still restores. A second frozen fixture containing an actual snapshot would
   close that.
-- **No mobile UI tests.** The screens are checked by driving a device by hand;
-  only the logic beneath them is under test. The web app's screens *are* tested,
-  which is the shape mobile should copy.
+- **The mobile screen suite stands in for native modules.** SQLite is
+  node:sqlite, libsodium the WASM build, ML Kit replays recorded lines, and the
+  PDF WebView renders nothing. The Maestro flows cover those on an emulator, but
+  only before a release and only on x86_64 — not in CI, which has no emulator.
+- **Voice has no end-to-end flow.** The emulator's microphone is silence.
+- **Coverage of the mobile screens is about 43%.** Diagnostics, benchmarks,
+  voice and the camera screen are the untested bulk.

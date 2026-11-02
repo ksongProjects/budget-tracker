@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:web": "pnpm --filter @budget/web test",
     "test:watch": "vitest",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm test:web && pnpm --filter @budget/web build && node tools/bundle-budget.mjs"
+    "check": "pnpm typecheck && pnpm lint && pnpm coverage && pnpm --filter @budget/web build && node tools/bundle-budget.mjs",
+    "coverage": "vitest run --coverage && pnpm --filter @budget/web exec vitest run --coverage && pnpm --filter @budget/mobile test:coverage",
+    "test:mobile": "pnpm --filter @budget/mobile test"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -29,6 +31,7 @@
   "devDependencies": {
     "@eslint/js": "^9.15.0",
     "@types/node": "^22.9.0",
+    "@vitest/coverage-v8": "4.1.11",
     "eslint": "^9.15.0",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.15.0",

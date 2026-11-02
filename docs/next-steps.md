@@ -372,9 +372,11 @@ Phase 4.2 asked for both; the app shows text and a copy button
 Acceptance: the key round-trips through a QR scan and through the saved file
 into a restore on the emulator.
 
-### 14.4 Mobile UI tests
+### 14.4 Mobile UI tests — done 2026-11-02
 
-Screens are checked by hand today; only the logic under them is tested.
+Jest screen tests run every route in CI (`apps/mobile/test/`), and four Maestro
+flows run against the release build on the emulator (`apps/mobile/e2e/`). See
+running-locally.md. What was planned:
 
 1. Add Maestro flows (YAML, run against the emulator) for: first launch → manual
    entry → appears in list; photo capture with the bundled receipt → confirm;

@@ -1,0 +1,83 @@
+# Backup with the real native libsodium, Argon2 and SQLite snapshot, then a
+# restore of that archive on the same install.
+#
+# Not a wiped-device restore: the archive lives in the app's private folder,
+# which clearState deletes, and a release build cannot be read with run-as.
+# The wiped-device round trip is covered by apps/mobile/test/backup.test.tsx;
+# on a device it needs a way to copy an archive off the phone (docs/deferred.md).
+appId: com.ksongprojects.txns
+name: Backup and restore
+---
+- runFlow: common/fresh-install.yaml
+- runFlow:
+    file: common/type-spend.yaml
+    env:
+      AMOUNT: "1250"
+      MERCHANT: "Blue Bottle"
+- runFlow:
+    file: common/type-spend.yaml
+    env:
+      AMOUNT: "4000"
+      MERCHANT: "Shell"
+- assertVisible: "No backups yet.*"
+
+- tapOn: "Profile and settings"
+- tapOn: "Backup and restore"
+- tapOn: "Set up backup"
+- tapOn: "Backup password"
+- inputText: "correct horse battery"
+- hideKeyboard
+- tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Save your recovery key"
+    timeout: 30000
+
+# The key is shown once; the flow keeps it the way a user writes it down.
+- copyTextFrom: "[A-Z0-9]+(-[A-Z0-9]+){3,}"
+- evalScript: ${output.lastGroup = maestro.copiedText.split('-').pop()}
+- tapOn: "I have saved it"
+- tapOn: "Last group"
+- inputText: "WRONG"
+- hideKeyboard
+- tapOn: "Confirm and back up"
+- assertVisible: ".*does not match the last group.*"
+- tapOn: "Last group"
+- eraseText: 10
+- inputText: ${output.lastGroup}
+- hideKeyboard
+- tapOn: "Confirm and back up"
+- extendedWaitUntil:
+    visible: "Backed up .*"
+    timeout: 60000
+- assertVisible: "Backup is on"
+
+# Back on the ledger, the nudge is gone.
+- back
+- back
+- assertNotVisible: "No backups yet.*"
+
+# A wrong password is refused and blames the password.
+- tapOn: "Profile and settings"
+- tapOn: "Backup and restore"
+- scrollUntilVisible:
+    element: "Restore a backup"
+- tapOn: "Restore a backup"
+- tapOn: "Backup password or recovery key"
+- inputText: "not the password"
+- hideKeyboard
+- tapOn: "Use the latest backup on this device"
+- tapOn: "RESTORE"
+- extendedWaitUntil:
+    visible: ".*not open this backup.*"
+    timeout: 60000
+
+# The right one opens it, and every row is already current.
+- tapOn: "Backup password or recovery key"
+- eraseText: 30
+- inputText: "correct horse battery"
+- hideKeyboard
+- tapOn: "Use the latest backup on this device"
+- tapOn: "RESTORE"
+- extendedWaitUntil:
+    visible: "Restored a backup from .* 0 rows added.*"
+    timeout: 60000

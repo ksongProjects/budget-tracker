@@ -1,0 +1,17 @@
+# A fresh install, through the one-time setup screen, to an empty ledger.
+# clearState deletes the app's data: run.mjs only ever targets an emulator.
+appId: com.ksongprojects.txns
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible: "Start tracking"
+    timeout: 20000
+- tapOn: "Name"
+- inputText: "E2E Tester"
+- hideKeyboard
+- tapOn: "Start tracking"
+- extendedWaitUntil:
+    visible: "Nothing recorded yet"
+    timeout: 15000

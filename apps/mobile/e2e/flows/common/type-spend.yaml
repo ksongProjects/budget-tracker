@@ -1,0 +1,24 @@
+# From the ledger: type a spend of ${AMOUNT} (keypad digits) at ${MERCHANT}.
+appId: com.ksongprojects.txns
+---
+- tapOn: "Record a spend"
+- tapOn: "Type it"
+- extendedWaitUntil:
+    visible: "Who was paid? Optional"
+    timeout: 10000
+- evalScript: ${output.keys = AMOUNT.split('')}
+- repeat:
+    times: ${AMOUNT.length}
+    commands:
+      - evalScript: ${output.key = output.keys.shift()}
+      - tapOn:
+          text: ${output.key}
+          index: 0
+          below: "What was it?"
+- tapOn: "Who was paid? Optional"
+- inputText: ${MERCHANT}
+- hideKeyboard
+- tapOn: "Save"
+- extendedWaitUntil:
+    visible: ${MERCHANT}
+    timeout: 10000
