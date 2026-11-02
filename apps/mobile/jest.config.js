@@ -15,8 +15,10 @@ module.exports = {
   preset: 'jest-expo/android',
   testMatch: ['<rootDir>/test/**/*.test.tsx'],
   setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
-  // The first render of a file loads every route module under app/.
-  testTimeout: 30_000,
+  // The first render of a file loads every route module under app/. With a
+  // warm transform cache that is seconds; on a fresh CI runner, where every
+  // worker compiles the whole app at once, it took 70 s and failed at 30.
+  testTimeout: 120_000,
   // The workspace packages are ESM, linked in from packages/*/dist; React
   // Native's own packages ship untranspiled Flow. Both need Babel.
   transformIgnorePatterns: [
