@@ -3,7 +3,7 @@
     "name": "TXNS",
     "slug": "budget-tracker",
     "scheme": ["txns", "budget"],
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "com.ksongprojects.txns",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#0f1115",
         "foregroundImage": "./assets/android-icon-foreground.png",

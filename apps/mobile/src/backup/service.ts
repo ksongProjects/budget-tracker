@@ -40,7 +40,7 @@ import {
 
 const BACKUP_DIR = `${FileSystem.documentDirectory ?? ''}backups/`;
 const BENCHMARK_DIR = `${FileSystem.documentDirectory ?? ''}benchmark/`;
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.2.0';
 
 /** How many archives to keep on the device. See `pruneBackups`. */
 export const KEEP_BACKUPS = 5;
