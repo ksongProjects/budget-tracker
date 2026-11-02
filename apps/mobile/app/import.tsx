@@ -129,9 +129,10 @@ export default function UploadScreen(): ReactNode {
         setFileName(asset.name);
         setTable(read.table);
         setMapping(read.mapping ?? guessMapping(read.table.header));
-        if (read.dateOrder !== undefined) setDateOrder(read.dateOrder);
-        const stated = CurrencySchema.safeParse(read.currency).data;
-        if (stated !== undefined) setCurrency(stated);
+        // What this file does not say falls back to the default, not to
+        // whatever the last file said.
+        setDateOrder(read.dateOrder ?? 'mdy');
+        setCurrency(CurrencySchema.safeParse(read.currency).data ?? defaultCurrency);
         setDebitsArePositive(read.debitsArePositive ?? false);
         setRecognised(read.recognised);
         setSource({ tier: 1, engine: document.engine, durationMs: Date.now() - started });
@@ -154,6 +155,11 @@ export default function UploadScreen(): ReactNode {
       setFileName(asset.name);
       setTable(parsed);
       setMapping(guessMapping(parsed.header));
+      // Everything a previous file decided goes back to its default: a PDF
+      // that said "ymd" or "EUR" says nothing about this one, and keeping it
+      // made a CSV picked after a PDF read none of its dates.
+      setDateOrder('mdy');
+      setCurrency(defaultCurrency);
       setDebitsArePositive(false);
       setSource({ tier: 0, engine: 'csv', durationMs: Date.now() - started });
     } catch (cause) {
