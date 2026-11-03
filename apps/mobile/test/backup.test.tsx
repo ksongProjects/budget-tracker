@@ -6,6 +6,13 @@ import { DOCUMENTS, listFiles, pickFile, readFile, resetDevice } from './device'
 const PASSWORD = 'correct horse battery';
 
 /**
+ * Long enough for a step that derives a key from the password (Argon2 in the
+ * WASM build) or encrypts the ledger. Locally that is well under a second; on
+ * a shared CI runner it has taken longer than Testing Library's default 1 s.
+ */
+const CRYPTO_WAIT = { timeout: 20_000 };
+
+/**
  * Through the whole ceremony: password, recovery key shown once, last group
  * typed back, first backup written. Returns the key as printed on screen.
  */
@@ -14,14 +21,14 @@ async function setUpBackup(): Promise<string> {
   fireEvent.changeText(screen.getByPlaceholderText('Backup password'), PASSWORD);
   fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
 
-  await screen.findByText('Save your recovery key');
+  await screen.findByText('Save your recovery key', {}, CRYPTO_WAIT);
   const printed = screen.getByText(/^[A-Z0-9]+(-[A-Z0-9]+){3,}$/).props.children as string;
 
   fireEvent.press(screen.getByRole('button', { name: 'I have saved it' }));
   fireEvent.changeText(screen.getByPlaceholderText('Last group'), printed.split('-').at(-1) ?? '');
   fireEvent.press(screen.getByRole('button', { name: 'Confirm and back up' }));
 
-  await screen.findByText(/^Backed up /, {}, { timeout: 20_000 });
+  await screen.findByText(/^Backed up /, {}, CRYPTO_WAIT);
   return printed;
 }
 
@@ -58,7 +65,7 @@ describe('backup and restore', () => {
     fireEvent.press(await screen.findByRole('button', { name: 'Set up backup' }));
     fireEvent.changeText(screen.getByPlaceholderText('Backup password'), PASSWORD);
     fireEvent.press(screen.getByRole('button', { name: 'Continue' }));
-    await screen.findByText('Save your recovery key');
+    await screen.findByText('Save your recovery key', {}, CRYPTO_WAIT);
 
     fireEvent.press(screen.getByRole('button', { name: 'I have saved it' }));
     fireEvent.changeText(screen.getByPlaceholderText('Last group'), 'WRONG');
@@ -91,7 +98,7 @@ describe('backup and restore', () => {
     pickFile('txns-backup.btbk', 'application/octet-stream', bytes ?? Buffer.alloc(0));
     fireEvent.press(screen.getByRole('button', { name: 'Choose a backup file' }));
 
-    expect(await screen.findByText(/^Restored a backup from .* rows added/, {}, { timeout: 20_000 })).toBeTruthy();
+    expect(await screen.findByText(/^Restored a backup from .* rows added/, {}, CRYPTO_WAIT)).toBeTruthy();
 
     await reopenApp();
     expect(await screen.findByText('Blue Bottle')).toBeTruthy();
@@ -112,7 +119,7 @@ describe('backup and restore', () => {
     fireEvent.changeText(screen.getByPlaceholderText('Backup password or recovery key'), PASSWORD);
     pickFile('txns-backup.btbk', 'application/octet-stream', bytes ?? Buffer.alloc(0));
     fireEvent.press(screen.getByRole('button', { name: 'Choose a backup file' }));
-    await screen.findByText(/^Restored a backup/, {}, { timeout: 20_000 });
+    await screen.findByText(/^Restored a backup/, {}, CRYPTO_WAIT);
 
     await reopenApp();
     expect(await screen.findByText('Safeway')).toBeTruthy();
@@ -134,7 +141,7 @@ describe('backup and restore', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Choose a backup file' }));
 
     expect(
-      await screen.findByText(/not open this backup/, {}, { timeout: 20_000 }),
+      await screen.findByText(/not open this backup/, {}, CRYPTO_WAIT),
     ).toBeTruthy();
   });
 });
