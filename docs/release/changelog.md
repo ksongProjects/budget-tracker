@@ -4,6 +4,59 @@ Sideload builds for device testing, published as GitHub prereleases on
 `ksongProjects/budget-tracker`. Each one is signed with the TXNS release key, so
 it installs over the last one and keeps the ledger. Newest first.
 
+## 0.2.0 build fd9d330 — 2026-11-02
+
+First version bump: 0.2.0, versionCode 2. Installs over 0.1.0 and keeps the
+ledger (same signing key). No database migration.
+
+### Receipt photos read properly
+
+A real service invoice, photographed tilted with the card slip in frame, used
+to read the slip as the merchant, guess the total from the largest amount,
+flag the date as ambiguous and list 95 rows of checklist as items. Now:
+
+- **Merchant** is the name printed over the address, not whatever is first in
+  frame.
+- **Date and time** come from the line labelled DATE, with the printed time
+  kept. Before, every receipt was saved at 12:00. When day and month could be
+  either way round, the day the photo was taken settles it.
+- **Total** is read from the TOTAL line on tilted photos too.
+- **Items** are the rows whose prices stand in the receipt's price column.
+  Checklists, card slips and anything after the total are left out, and wrapped
+  descriptions are joined. Quantity columns are read.
+- **Tax** adds every tax line (PST and QST are now recognised beside GST and
+  HST), and discounts are stored as negative amounts. The breakdown balances
+  against the printed total.
+
+### Fixes
+
+- Uploading a CSV after a PDF no longer reads every row as unreadable: the
+  PDF's date order and currency were carried over to the next file.
+
+### Testing
+
+- Mobile screen tests (Jest + Testing Library) render every route against a
+  real SQLite ledger in CI, including backup and restore onto a wiped device.
+- Four end-to-end flows run the release build on the emulator before each
+  release: core ledger, capture with real OCR and the camera, uploading a CSV,
+  a text PDF and a scanned PDF, and backup and restore.
+- Coverage floors on every suite; CI fails below them.
+
+Checked before publishing:
+- 803 node, 69 browser and 22 screen tests pass.
+- All 4 end-to-end flows pass on an x86_64 release build of this commit.
+- On that build, the invoice photo read VALVOLINE EXPRESS CARE, 2026-11-01,
+  263.16, and 19 rows that add up.
+
+### Known, not fixed
+
+Listed in [deferred.md](../deferred.md):
+- **A backup cannot leave the phone without Google Drive.** The backup screen's
+  "share sheet or cable" advice has no button behind it.
+- **Imported rows show the bank's description in the home list**, not the
+  merchant.
+- **Nothing links to the Summary screen.** It is reached at `txns://summary`.
+
 ## 0.1.0 build 166dd78 — 2026-10-16
 
 Fixes for build 50c4add. Install this one instead.
